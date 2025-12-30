@@ -89,21 +89,48 @@ def detect_id_like(s: pd.Series) -> bool:
     return (letter_ratio > 0.15 or lead0_ratio > 0.05) and unique_ratio > 0.4 and allowed > 0.7
 
 def normalize_numeric_text(s: pd.Series) -> pd.Series:
-    x = s.astype(str)
-    x = x.str.replace(r"^\((.*)\)$", r"-\1", regex=True)   # (123) -> -123
-    x = x.str.replace(r"^(.+)-$", r"-\1", regex=True)      # 123- -> -123
-    x = x.str.replace(f"[{re.escape(CURRENCY_CHARS)}{NBSP} ]", "", regex=True)
-    x = x.str.replace(",", "", regex=False)                # drop thousands comma
-    if DECIMAL_CHAR != ".":
-        x = x.str.replace(DECIMAL_CHAR, ".", regex=False)
-    x = x.str.replace("%", "", regex=False)
-    x = x.replace(NA_MAP)
+    # Convert to string and trim whitespace, but preserve NaN
+    x = s.copy()
+    mask = x.notna()
+    
+    if mask.any():
+        # Only process non-null values
+        x_str = x.loc[mask].astype(str).str.strip()
+        
+        # Replace NaN string representations and empty strings back to actual NaN
+        x_str = x_str.replace("nan", np.nan)
+        x_str = x_str.replace("None", np.nan)
+        x_str = x_str.replace("", np.nan)
+        
+        # Map NA strings to NaN before normalization
+        for na_str, na_val in NA_MAP.items():
+            x_str = x_str.replace(na_str, na_val)
+        
+        # Apply normalizations using vectorized string operations
+        # Only apply to non-null values
+        x_str = x_str.str.replace(r"^\((.*)\)$", r"-\1", regex=True)   # (123) -> -123
+        x_str = x_str.str.replace(r"^(.+)-$", r"-\1", regex=True)      # 123- -> -123
+        x_str = x_str.str.replace(f"[{re.escape(CURRENCY_CHARS)}{NBSP} ]", "", regex=True)
+        x_str = x_str.str.replace(",", "", regex=False)                # drop thousands comma
+        if DECIMAL_CHAR != ".":
+            x_str = x_str.str.replace(DECIMAL_CHAR, ".", regex=False)
+        x_str = x_str.str.replace("%", "", regex=False)
+        
+        # Update the original series with processed values
+        x.loc[mask] = x_str
+    
     return x
 
 def try_numeric(s: pd.Series):
     x = normalize_numeric_text(s)
     num = pd.to_numeric(x, errors="coerce")
-    return num, num.notna().mean()
+    # Calculate ratio: successfully converted / original non-null values
+    original_non_null = s.notna().sum()
+    if original_non_null == 0:
+        return num, 0.0
+    successfully_converted = num.notna().sum()
+    ratio = successfully_converted / original_non_null
+    return num, ratio
 
 def try_parse_date_patterns(s: pd.Series):
     x = s.astype(str)
@@ -153,28 +180,35 @@ def coerce_boolean(s: pd.Series) -> pd.Series:
 def infer_column(s: pd.Series, name: str):
     """
     Robust inference for client-safe CSV -> BigQuery Autodetect:
-    - If any non-null value contains letters OR any token is not numeric-ish -> STRING
-    - Otherwise, try boolean, id-like (STRING), date, else numeric only if 100% numeric
+    - Try boolean first (quick check)
+    - Try numeric with reasonable threshold (95%+) to catch numeric data
+    - Try date detection to catch dates (including those with letters)
+    - Then check id-like patterns
+    - Default to STRING
     """
     s = s.apply(strip_cell)
 
-    # HARD RULE: letters or non-numeric-ish -> STRING
-    non_null = s.dropna().astype(str)
-    if not non_null.empty:
-        has_letters = non_null.str.contains(r"[A-Za-z]", na=False)
-        numeric_ish = non_null.str.match(r'^[\s\+\-]?\(?\d{1,3}(?:[,\s]\d{3})*(?:\.\d+)?\)?%?$', na=False)
-        if has_letters.any() or (~numeric_ish).any():
-            return s.astype(str).str.strip(), "STRING", None
-
-    # boolean
+    # boolean (quick check first)
     if detect_boolean(s):
         return coerce_boolean(s), "BOOL", None
 
-    # id-like -> STRING
-    if detect_id_like(s):
-        return s.astype(str).str.strip(), "STRING", None
+    # numeric check FIRST with reasonable threshold (90%+ numeric)
+    # This catches numeric data before it gets misclassified as STRING
+    num, num_ratio = try_numeric(s)
+    # Also check if majority of non-null values are numeric (more lenient)
+    non_null_count = s.notna().sum()
+    if non_null_count > 0:
+        numeric_count = num.notna().sum()
+        # Use the higher of: ratio of converted values, or absolute count threshold
+        if num_ratio >= 0.90 or (numeric_count >= 3 and num_ratio >= 0.80):  # 90%+ or 80%+ with at least 3 values
+            nonnull = num.dropna()
+            if len(nonnull) > 0:
+                # Check if all non-null values are integers
+                if np.all(np.modf(nonnull.values)[0] == 0):
+                    return num.astype("Int64"), "INT64", None
+                return num.astype(float), "FLOAT64", None
 
-    # dates
+    # dates - CHECK AFTER numeric to avoid misclassifying numeric dates
     ss = sample_series(s, MAX_ROWS_SAMPLE)
 
     excel_dt, excel_ratio = try_parse_excel_serial(ss)
@@ -208,13 +242,9 @@ def infer_column(s: pd.Series, name: str):
             date_fmt = "%Y-%m-%d"
         return full_dt, bq_type, date_fmt
 
-    # numeric ONLY IF 100% numeric after normalization
-    num, num_ratio = try_numeric(s)
-    if num_ratio == 1.0:
-        nonnull = num.dropna()
-        if len(nonnull) > 0 and np.all(np.modf(nonnull.values)[0] == 0):
-            return num.astype("Int64"), "INT64", None
-        return num.astype(float), "FLOAT64", None
+    # id-like -> STRING
+    if detect_id_like(s):
+        return s.astype(str).str.strip(), "STRING", None
 
     # default STRING
     return s.astype(str).str.strip(), "STRING", None

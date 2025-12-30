@@ -252,13 +252,137 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def main():
+    # Add JavaScript to center logo and remove image enlarge buttons
+    st.markdown("""
+    <script>
+    function centerLogo() {
+        // Find the middle column (2nd column)
+        const middleColumn = document.querySelector('div[data-testid="column"]:nth-of-type(2)');
+        if (middleColumn) {
+            // Force center alignment
+            middleColumn.style.display = 'flex';
+            middleColumn.style.justifyContent = 'center';
+            middleColumn.style.alignItems = 'center';
+            middleColumn.style.textAlign = 'center';
+            middleColumn.style.width = '100%';
+            middleColumn.style.margin = '0 auto';
+            
+            // Find image in middle column and center it
+            const logoImage = middleColumn.querySelector('[data-testid="stImage"]');
+            if (logoImage) {
+                logoImage.style.margin = '0 auto';
+                logoImage.style.display = 'block';
+                logoImage.style.textAlign = 'center';
+                
+                // Also center any nested divs or images
+                const nestedDivs = logoImage.querySelectorAll('div, img');
+                nestedDivs.forEach(function(el) {
+                    el.style.margin = '0 auto';
+                    el.style.display = 'block';
+                    el.style.textAlign = 'center';
+                });
+            }
+        }
+    }
+    
+    // Run immediately and on delays
+    centerLogo();
+    setTimeout(centerLogo, 50);
+    setTimeout(centerLogo, 100);
+    setTimeout(centerLogo, 200);
+    setTimeout(centerLogo, 500);
+    
+    // Watch for DOM changes
+    const centerObserver = new MutationObserver(centerLogo);
+    centerObserver.observe(document.body, { childList: true, subtree: true });
+    
+    function removeLogoButtons() {
+        // Only target logo images - check if image is in the middle column (logo position)
+        const middleColumn = document.querySelector('div[data-testid="column"]:nth-of-type(2)');
+        if (middleColumn) {
+            // Find all buttons in the middle column
+            const allButtons = middleColumn.querySelectorAll('button');
+            allButtons.forEach(function(btn) {
+                // Check if button is related to image (has fullscreen/expand attributes or is in image container)
+                const isImageButton = btn.getAttribute('title') && btn.getAttribute('title').toLowerCase().includes('fullscreen') ||
+                                     btn.getAttribute('aria-label') && btn.getAttribute('aria-label').toLowerCase().includes('fullscreen') ||
+                                     btn.getAttribute('aria-label') && btn.getAttribute('aria-label').toLowerCase().includes('expand') ||
+                                     btn.closest('[data-testid="stImage"]');
+                
+                if (isImageButton) {
+                    // Aggressively hide and remove
+                    btn.style.display = 'none';
+                    btn.style.visibility = 'hidden';
+                    btn.style.opacity = '0';
+                    btn.style.pointerEvents = 'none';
+                    btn.style.width = '0';
+                    btn.style.height = '0';
+                    btn.style.padding = '0';
+                    btn.style.margin = '0';
+                    btn.style.position = 'absolute';
+                    btn.style.left = '-9999px';
+                    // Remove from DOM
+                    try {
+                        btn.remove();
+                    } catch(e) {}
+                }
+            });
+            
+            // Also specifically target image containers
+            const logoImages = middleColumn.querySelectorAll('[data-testid="stImage"]');
+            logoImages.forEach(function(imgContainer) {
+                const buttons = imgContainer.querySelectorAll('button');
+                buttons.forEach(function(btn) {
+                    btn.style.display = 'none';
+                    btn.style.visibility = 'hidden';
+                    btn.style.opacity = '0';
+                    btn.style.pointerEvents = 'none';
+                    btn.style.width = '0';
+                    btn.style.height = '0';
+                    btn.style.padding = '0';
+                    btn.style.margin = '0';
+                    btn.style.position = 'absolute';
+                    btn.style.left = '-9999px';
+                    try {
+                        btn.remove();
+                    } catch(e) {}
+                });
+            });
+        }
+    }
+    
+    // Run immediately and more frequently
+    removeLogoButtons();
+    setTimeout(removeLogoButtons, 50);
+    setTimeout(removeLogoButtons, 100);
+    setTimeout(removeLogoButtons, 200);
+    setTimeout(removeLogoButtons, 500);
+    setInterval(removeLogoButtons, 200);
+    
+    // Watch for new elements with more aggressive settings
+    const observer = new MutationObserver(function(mutations) {
+        removeLogoButtons();
+    });
+    observer.observe(document.body, { 
+        childList: true, 
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class']
+    });
+    </script>
+    """, unsafe_allow_html=True)
+    
     # Logo - Centered using columns
     col1, col2, col3 = st.columns([1, 1, 1])
+    with col1:
+        st.empty()
     with col2:
         try:
             st.image("assets/Logo.svg", width=280)
         except:
             st.image("assets/Logo.svg")
+    with col3:
+        st.empty()
     
     # Header
     st.markdown('<h1 class="main-header">Schema Documentation</h1>', unsafe_allow_html=True)
@@ -269,6 +393,8 @@ def main():
     with col1:
         if st.button("← Back to Main Page", use_container_width=True, key="back_to_main"):
             st.switch_page("app.py")
+    with col2:
+        st.empty()
     with col3:
         if st.button("View BigQuery Guide →", use_container_width=True, key="nav_to_docs"):
             st.switch_page("pages/Documentation.py")
