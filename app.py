@@ -2201,58 +2201,80 @@ def run_main_app():
                 if len(sheet_names) > 1:
                     st.markdown(f'<h3 style="margin-top: 0; margin-bottom: 1rem;">Sheet: <strong>{selected_sheet}</strong></h3>', unsafe_allow_html=True)
                 
-                # Create editable interface using columns with improved styling
-                st.markdown("""
-                <div class="schema-review-container">
-                """, unsafe_allow_html=True)
+                # Info message about form pattern
+                st.info("💡 **Tip:** Make all your schema changes below, then click 'Apply Schema Changes' to update them all at once. This is faster for large datasets!")
                 
-                # Display table with editable dropdowns
-                for idx, row in review_df.iterrows():
-                    col_name = row['Column Name']
-                    inferred_type = row['Inferred Type']
-                    sample_vals = row['Sample Values']
+                # Wrap schema review in a form to batch changes
+                with st.form(key=f"schema_form_{selected_sheet}", clear_on_submit=False):
+                    # Create editable interface using columns with improved styling
+                    st.markdown("""
+                    <div class="schema-review-container">
+                    """, unsafe_allow_html=True)
                     
-                    # Add row styling
-                    st.markdown(f'<div class="schema-review-row">', unsafe_allow_html=True)
+                    # Store form selections temporarily
+                    form_selections = {}
                     
-                    col1, col2, col3, col4 = st.columns([2, 1.5, 1.5, 3])
-                    
-                    with col1:
-                        st.markdown(f'<div class="schema-column-name">{col_name}</div>', unsafe_allow_html=True)
-                    
-                    with col2:
-                        st.markdown(f'<span class="schema-inferred-type">{inferred_type}</span>', unsafe_allow_html=True)
-                    
-                    with col3:
-                        sheet_types = st.session_state['user_selected_types'].get(selected_sheet, {})
-                        current_type = sheet_types.get(col_name, inferred_type)
-                        try:
-                            default_index = type_options.index(current_type)
-                        except ValueError:
-                            # If current type is not in options, default to inferred type
-                            default_index = type_options.index(inferred_type) if inferred_type in type_options else 0
+                    # Display table with editable dropdowns
+                    for idx, row in review_df.iterrows():
+                        col_name = row['Column Name']
+                        inferred_type = row['Inferred Type']
+                        sample_vals = row['Sample Values']
                         
-                        selected_type = st.selectbox(
-                            f"Type for {col_name}",
-                            type_options,
-                            index=default_index,
-                            key=f"type_select_{selected_sheet}_{col_name}",
-                            label_visibility="collapsed"
-                        )
-                        # Update the user_selected_types for this specific sheet
+                        # Add row styling
+                        st.markdown(f'<div class="schema-review-row">', unsafe_allow_html=True)
+                        
+                        col1, col2, col3, col4 = st.columns([2, 1.5, 1.5, 3])
+                        
+                        with col1:
+                            st.markdown(f'<div class="schema-column-name">{col_name}</div>', unsafe_allow_html=True)
+                        
+                        with col2:
+                            st.markdown(f'<span class="schema-inferred-type">{inferred_type}</span>', unsafe_allow_html=True)
+                        
+                        with col3:
+                            sheet_types = st.session_state['user_selected_types'].get(selected_sheet, {})
+                            current_type = sheet_types.get(col_name, inferred_type)
+                            try:
+                                default_index = type_options.index(current_type)
+                            except ValueError:
+                                # If current type is not in options, default to inferred type
+                                default_index = type_options.index(inferred_type) if inferred_type in type_options else 0
+                            
+                            selected_type = st.selectbox(
+                                f"Type for {col_name}",
+                                type_options,
+                                index=default_index,
+                                key=f"form_type_select_{selected_sheet}_{col_name}",
+                                label_visibility="collapsed"
+                            )
+                            # Store selection temporarily (won't update session state until form submit)
+                            form_selections[col_name] = selected_type
+                        
+                        with col4:
+                            st.markdown(f'<div class="schema-sample-values">{sample_vals}</div>', unsafe_allow_html=True)
+                        
+                        st.markdown('</div>', unsafe_allow_html=True)
+                        
+                        if idx < len(review_df) - 1:
+                            st.markdown('<hr style="margin: 1rem 0; border: none; border-top: 1px solid #e5e7eb;">', unsafe_allow_html=True)
+                    
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    # Submit button to apply all changes at once
+                    col1, col2, col3 = st.columns([1, 1, 1])
+                    with col2:
+                        apply_changes = st.form_submit_button("Apply Schema Changes", use_container_width=True, type="primary")
+                    
+                    # Apply all changes when form is submitted
+                    if apply_changes:
+                        # Update session state with all form selections at once
                         if selected_sheet not in st.session_state['user_selected_types']:
                             st.session_state['user_selected_types'][selected_sheet] = {}
-                        st.session_state['user_selected_types'][selected_sheet][col_name] = selected_type
-                    
-                    with col4:
-                        st.markdown(f'<div class="schema-sample-values">{sample_vals}</div>', unsafe_allow_html=True)
-                    
-                    st.markdown('</div>', unsafe_allow_html=True)
-                    
-                    if idx < len(review_df) - 1:
-                        st.markdown('<hr style="margin: 1rem 0; border: none; border-top: 1px solid #e5e7eb;">', unsafe_allow_html=True)
-                
-                st.markdown("</div>", unsafe_allow_html=True)
+                        # Batch update all column types
+                        for col_name, selected_type in form_selections.items():
+                            st.session_state['user_selected_types'][selected_sheet][col_name] = selected_type
+                        st.success("✅ Schema changes applied! You can now process the file.")
+                        st.rerun()
             
             # Process with schema button
             st.markdown("---")

@@ -167,6 +167,77 @@ def try_parse_excel_serial(s: pd.Series):
         return out, out.notna().mean()
     return None, 0.0
 
+def has_text_values(s: pd.Series) -> bool:
+    """
+    Check if column contains any text/letter values (not just numbers or boolean).
+    Returns True if column contains letters/words, indicating it should be STRING.
+    """
+    x = s.dropna().astype(str).str.strip()
+    if x.empty:
+        return False
+    
+    # Check if any values contain letters (A-Z, a-z)
+    has_letters = x.str.contains(r"[A-Za-z]", na=False)
+    if has_letters.any():
+        # If we have any values with letters, it's text
+        # But exclude boolean values to avoid false positives
+        x_lower = x.str.lower()
+        boolean_values = BOOL_TRUE | BOOL_FALSE
+        non_boolean_text = has_letters & ~x_lower.isin(boolean_values)
+        
+        # If there are any non-boolean text values, it's definitely STRING
+        if non_boolean_text.any():
+            text_vals = x[non_boolean_text]
+            # If any text value is longer than 1 char, it's a word (not a code)
+            if (text_vals.str.len() > 1).any():
+                return True
+            # Even single char codes indicate it's text
+            if text_vals.nunique() >= 1:
+                return True
+    
+    return False
+
+def has_non_boolean_text(s: pd.Series) -> bool:
+    """
+    Check if column contains text/letters that are NOT boolean-like.
+    Returns True if column contains words or text patterns that indicate it's not a boolean column.
+    This prevents columns with text values like "Chevron", "Herringbone" from being misclassified as BOOL.
+    """
+    x = s.dropna().astype(str).str.strip()
+    if x.empty:
+        return False
+    
+    # Convert to lowercase for comparison
+    x_lower = x.str.lower()
+    boolean_values = BOOL_TRUE | BOOL_FALSE
+    
+    # Check if any values contain letters
+    has_letters = x.str.contains(r"[A-Za-z]", na=False)
+    if not has_letters.any():
+        return False  # No letters at all, can't be text
+    
+    # Find values that have letters but are NOT in boolean sets
+    # These are text values like "Chevron", "Herringbone", etc.
+    non_boolean_with_letters = has_letters & ~x_lower.isin(boolean_values)
+    
+    if non_boolean_with_letters.any():
+        # Get the actual non-boolean text values
+        text_values = x[non_boolean_with_letters]
+        
+        # If ANY of these are longer than 1 character, it's definitely text (not boolean)
+        # This catches "Chevron", "Herringbone", etc.
+        # This is the main check - any word-like text value means it's not boolean
+        if (text_values.str.len() > 1).any():
+            return True
+        
+        # Even for single characters, if we have ANY non-boolean letter value,
+        # it's likely a code/identifier column, not boolean
+        # This catches cases like "a", "b", "c" codes mixed with "0"
+        if text_values.nunique() >= 1:
+            return True
+    
+    return False
+
 def detect_boolean(s: pd.Series) -> bool:
     x = s.dropna().astype(str).str.strip().str.lower()
     if x.empty:
@@ -180,19 +251,32 @@ def coerce_boolean(s: pd.Series) -> pd.Series:
 def infer_column(s: pd.Series, name: str):
     """
     Robust inference for client-safe CSV -> BigQuery Autodetect:
-    - Try boolean first (quick check)
-    - Try numeric with reasonable threshold (95%+) to catch numeric data
+    - Check for text/letters first to avoid misclassifying text columns as boolean
+    - Try boolean only if column doesn't contain non-boolean text
+    - Try numeric with reasonable threshold (90%+) to catch numeric data
     - Try date detection to catch dates (including those with letters)
     - Then check id-like patterns
     - Default to STRING
     """
     s = s.apply(strip_cell)
 
-    # boolean (quick check first)
-    if detect_boolean(s):
-        return coerce_boolean(s), "BOOL", None
+    # Check for text/letters FIRST - if column contains text values, it should be STRING
+    # This prevents columns with text like "Chevron", "Herringbone" from being classified as numeric
+    if has_text_values(s):
+        # Column contains text values, classify as STRING (don't check numeric or boolean)
+        return s.astype(str).str.strip(), "STRING", None
 
-    # numeric check FIRST with reasonable threshold (90%+ numeric)
+    # Check for non-boolean text to prevent misclassification as boolean
+    # If column contains text values like "Chevron", "Herringbone", etc., skip boolean detection
+    if has_non_boolean_text(s):
+        # Column contains text that's not boolean-like, skip boolean check
+        pass
+    else:
+        # Only check boolean if column doesn't contain non-boolean text
+        if detect_boolean(s):
+            return coerce_boolean(s), "BOOL", None
+
+    # numeric check with reasonable threshold (90%+ numeric)
     # This catches numeric data before it gets misclassified as STRING
     num, num_ratio = try_numeric(s)
     # Also check if majority of non-null values are numeric (more lenient)
