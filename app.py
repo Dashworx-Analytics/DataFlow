@@ -55,8 +55,8 @@ def is_maintenance_mode():
 # ============================================================================
 def render_shared_css():
     """Render the shared CSS styling used by both main app and maintenance page."""
-    st.markdown("""
-    <style>
+st.markdown("""
+<style>
         /* Hide default Streamlit elements */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
@@ -196,11 +196,11 @@ def render_shared_css():
             width: 280px !important;
         }
         
-        .main-header {
-            font-size: 2.5rem;
+    .main-header {
+        font-size: 2.5rem;
             font-weight: 600;
             color: #1a1a1a;
-            text-align: center;
+        text-align: center;
             margin: 0.5rem 0 0.75rem 0;
             letter-spacing: -0.02em;
             line-height: 1.2;
@@ -267,8 +267,8 @@ def render_shared_css():
             font-size: 1.1rem;
             color: #6b7280;
             line-height: 1.7;
-            margin-bottom: 2rem;
-        }
+        margin-bottom: 2rem;
+    }
         
         /* Footer styling */
         .footer {
@@ -332,33 +332,33 @@ def render_shared_css():
         }
         
         /* Success/Warning/Error boxes */
-        .success-box {
+    .success-box {
             background: #ecfdf5;
             border: 1px solid #10b981;
             border-left: 4px solid #10b981;
             border-radius: 10px;
             padding: 1.25rem;
-            margin: 1rem 0;
+        margin: 1rem 0;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        }
+    }
         
-        .warning-box {
+    .warning-box {
             background: #fffbeb;
             border: 1px solid #f59e0b;
             border-left: 4px solid #f59e0b;
             border-radius: 10px;
             padding: 1.25rem;
-            margin: 1rem 0;
+        margin: 1rem 0;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        }
+    }
         
-        .error-box {
+    .error-box {
             background: #fef2f2;
             border: 1px solid #ef4444;
             border-left: 4px solid #ef4444;
             border-radius: 10px;
             padding: 1.25rem;
-            margin: 1rem 0;
+        margin: 1rem 0;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
         
@@ -668,7 +668,7 @@ def render_shared_css():
             }
             
             .schema-review-container {
-                padding: 1rem;
+        padding: 1rem;
             }
         }
         
@@ -1048,9 +1048,9 @@ def render_shared_css():
             background-color: #335169 !important;
             border-color: #335169 !important;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
-        }
-    </style>
-    """, unsafe_allow_html=True)
+    }
+</style>
+""", unsafe_allow_html=True)
 
 def render_shared_logo_script():
     """Render the shared JavaScript for logo centering and button removal."""
@@ -2114,23 +2114,239 @@ def run_main_app():
             sheet_names = st.session_state.get('sheet_names', [])
             inferred_schemas = st.session_state.get('inferred_schemas', {})
             
-            # Sheet selection dropdown (only show if multiple sheets)
+            # Initialize user-selected types structure if not exists
+            if 'user_selected_types' not in st.session_state:
+                st.session_state['user_selected_types'] = {}
+            
+            type_options = ["STRING", "INT64", "FLOAT64", "BOOL", "DATE", "TIMESTAMP"]
+            
+            # Use tabs for multiple sheets, single view for one sheet
             if len(sheet_names) > 1:
+                # Multiple sheets - use tabs
                 st.markdown("""
                 <div class="info-text" style="margin-bottom: 1.5rem;">
-                    <p><span style="color: #dc2626; font-size: 1.2rem; margin-right: 0.5rem;">⚠️</span>This file contains multiple sheets. Select a sheet below to review and edit its schema.</p>
+                    <p><span style="color: #dc2626; font-size: 1.2rem; margin-right: 0.5rem;">⚠️</span>This file contains multiple sheets. Each sheet has its own tab below. Review and edit the schema for each sheet separately.</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                selected_sheet = st.selectbox(
-                    "Select Sheet to Review",
-                    sheet_names,
-                    key="sheet_selector",
-                    index=sheet_names.index(st.session_state.get('selected_sheet', sheet_names[0])) if st.session_state.get('selected_sheet') in sheet_names else 0
-                )
-                st.session_state['selected_sheet'] = selected_sheet
+                # Create tabs for each sheet
+                tabs = st.tabs(sheet_names)
+                
+                # Process each sheet in its own tab
+                for tab_idx, (tab, sheet_name) in enumerate(zip(tabs, sheet_names)):
+                    with tab:
+                        # Initialize user-selected types for this sheet if not exists
+                        if sheet_name in inferred_schemas:
+                            schema_info = inferred_schemas[sheet_name]
+                            
+                            if sheet_name not in st.session_state['user_selected_types']:
+                                st.session_state['user_selected_types'][sheet_name] = {
+                                    col: info['type'] for col, info in schema_info.items()
+                                }
+                            else:
+                                # Update user_selected_types for this sheet to match current schema (add new columns, remove old ones)
+                                current_types = st.session_state['user_selected_types'][sheet_name]
+                                new_types = {}
+                                for col, info in schema_info.items():
+                                    # Use existing selection if column exists, otherwise use inferred type
+                                    new_types[col] = current_types.get(col, info['type'])
+                                st.session_state['user_selected_types'][sheet_name] = new_types
+                            
+                            # Create schema review table for this sheet
+                            review_data = []
+                            for col_name, col_info in schema_info.items():
+                                inferred_type = col_info['type']
+                                sample_vals = col_info.get('sample_values', [])
+                                null_count = col_info.get('null_count', 0)
+                                total_count = col_info.get('total_count', 0)
+                                
+                                # Build sample display with null indicator if needed
+                                if sample_vals:
+                                    sample_display = ", ".join(sample_vals)
+                                    if len(sample_display) > 50:
+                                        sample_display = sample_display[:47] + "..."
+                                else:
+                                    sample_display = "(no data)"
+                                
+                                # Add null count indicator if there are nulls
+                                if null_count > 0:
+                                    null_percentage = (null_count / total_count * 100) if total_count > 0 else 0
+                                    null_indicator = f" <span style='color: #dc2626; font-size: 0.85rem;'>({null_count} null)</span>"
+                                    sample_display = sample_display + null_indicator
+                                
+                                # Get current user selection for this sheet and column
+                                sheet_types = st.session_state['user_selected_types'].get(sheet_name, {})
+                                current_selection = sheet_types.get(col_name, inferred_type)
+                                
+                                review_data.append({
+                                    'Column Name': col_name,
+                                    'Inferred Type': inferred_type,
+                                    'Selected Type': current_selection,
+                                    'Sample Values': sample_display
+                                })
+                            
+                            # Display as dataframe for better formatting
+                            review_df = pd.DataFrame(review_data)
+                            
+                            # Info message about form pattern
+                            st.info("💡 **Tip:** Make all your schema changes below, then click 'Apply Schema Changes' to update them all at once. This is faster for large datasets!")
+                            
+                            # Wrap schema review in a form to batch changes
+                            with st.form(key=f"schema_form_{sheet_name}", clear_on_submit=False):
+                                # Create editable interface using columns with improved styling
+                                st.markdown("""
+                                <div class="schema-review-container">
+                                """, unsafe_allow_html=True)
+                                
+                                # Store form selections temporarily
+                                form_selections = {}
+                                
+                                # Display table with editable dropdowns
+                                for idx, row in review_df.iterrows():
+                                    col_name = row['Column Name']
+                                    inferred_type = row['Inferred Type']
+                                    sample_vals = row['Sample Values']
+                                    
+                                    # Add row styling
+                                    st.markdown(f'<div class="schema-review-row">', unsafe_allow_html=True)
+                                    
+                                    col1, col2, col3, col4 = st.columns([2, 1.5, 1.5, 3])
+                                    
+                                    with col1:
+                                        st.markdown(f'<div class="schema-column-name">{col_name}</div>', unsafe_allow_html=True)
+                                    
+                                    with col2:
+                                        st.markdown(f'<span class="schema-inferred-type">{inferred_type}</span>', unsafe_allow_html=True)
+                                    
+                                    with col3:
+                                        sheet_types = st.session_state['user_selected_types'].get(sheet_name, {})
+                                        current_type = sheet_types.get(col_name, inferred_type)
+                                        try:
+                                            default_index = type_options.index(current_type)
+                                        except ValueError:
+                                            # If current type is not in options, default to inferred type
+                                            default_index = type_options.index(inferred_type) if inferred_type in type_options else 0
+                                        
+                                        selected_type = st.selectbox(
+                                            f"Type for {col_name}",
+                                            type_options,
+                                            index=default_index,
+                                            key=f"form_type_select_{sheet_name}_{col_name}",
+                                            label_visibility="collapsed"
+                                        )
+                                        # Store selection temporarily (won't update session state until form submit)
+                                        form_selections[col_name] = selected_type
+                                    
+                                    with col4:
+                                        st.markdown(f'<div class="schema-sample-values">{sample_vals}</div>', unsafe_allow_html=True)
+                                    
+                                    st.markdown('</div>', unsafe_allow_html=True)
+                                    
+                                    if idx < len(review_df) - 1:
+                                        st.markdown('<hr style="margin: 1rem 0; border: none; border-top: 1px solid #e5e7eb;">', unsafe_allow_html=True)
+                                
+                                st.markdown("</div>", unsafe_allow_html=True)
+                                
+                                # Submit button to apply all changes at once
+                                col1, col2, col3 = st.columns([1, 1, 1])
+                                with col2:
+                                    apply_changes = st.form_submit_button("Apply Schema Changes", use_container_width=True, type="primary")
+                                
+                                # Apply all changes when form is submitted
+                                if apply_changes:
+                                    # Update session state with all form selections at once
+                                    if sheet_name not in st.session_state['user_selected_types']:
+                                        st.session_state['user_selected_types'][sheet_name] = {}
+                                    # Batch update all column types
+                                    for col_name, selected_type in form_selections.items():
+                                        st.session_state['user_selected_types'][sheet_name][col_name] = selected_type
+                                    st.success("✅ Schema changes applied! You can now process the file.")
+                                    st.rerun()
+                            
+                            # Process button for this specific sheet (inside the tab)
+                            st.markdown("---")
+                            process_btn = st.button(
+                                f"Process {sheet_name}",
+                                type="primary",
+                                use_container_width=True,
+                                key=f"process_sheet_{sheet_name}"
+                            )
+                            
+                            if process_btn:
+                                # Process only this specific sheet
+                                with st.spinner(f"Processing {sheet_name}..."):
+                                    try:
+                                        with tempfile.TemporaryDirectory() as temp_dir:
+                                            temp_dir = Path(temp_dir)
+                                            
+                                            input_path = temp_dir / uploaded_file.name
+                                            uploaded_file.seek(0)
+                                            with open(input_path, 'wb') as f:
+                                                f.write(uploaded_file.getvalue())
+                                            
+                                            output_dir = temp_dir / "output"
+                                            output_dir.mkdir()
+                                            
+                                            file_ext = input_path.suffix.lower()
+                                            
+                                            # Get user-selected types for this sheet only
+                                            user_selected_types_all = st.session_state.get('user_selected_types', {})
+                                            override_types = user_selected_types_all.get(sheet_name, {})
+                                            
+                                            # Process only this specific sheet
+                                            if file_ext in {'.xlsx', '.xlsm', '.xls'}:
+                                                # Read only the specific sheet
+                                                df_sheet = pd.read_excel(
+                                                    input_path,
+                                                    sheet_name=sheet_name,
+                                                    dtype=str,
+                                                    keep_default_na=False,
+                                                    engine="openpyxl"
+                                                )
+                                                process_sheet(sheet_name, df_sheet, output_dir, override_types=override_types)
+                                            elif file_ext == '.csv':
+                                                # For CSV, process it
+                                                df = pd.read_csv(input_path, dtype=str, keep_default_na=False, engine="python", on_bad_lines="skip")
+                                                process_sheet(sheet_name, df, output_dir, override_types=override_types)
+                                            else:
+                                                st.error("Unsupported file type. Please upload .xlsx, .xls, or .csv files.")
+                                                return
+                                            
+                                            # Initialize output_files if not exists
+                                            if 'output_files' not in st.session_state:
+                                                st.session_state['output_files'] = {}
+                                            
+                                            # Update only files for this sheet (merge with existing files from other sheets)
+                                            for file_path in output_dir.rglob('*'):
+                                                if file_path.is_file():
+                                                    relative_path = file_path.relative_to(output_dir)
+                                                    with open(file_path, 'rb') as f:
+                                                        st.session_state['output_files'][str(relative_path)] = f.read()
+                                            
+                                            # Mark this sheet as processed
+                                            if 'processed_sheets' not in st.session_state:
+                                                st.session_state['processed_sheets'] = set()
+                                            st.session_state['processed_sheets'].add(sheet_name)
+                                            
+                                            # Check if all sheets are processed
+                                            all_sheets = set(st.session_state.get('sheet_names', []))
+                                            processed_sheets = st.session_state.get('processed_sheets', set())
+                                            if all_sheets.issubset(processed_sheets):
+                                                st.session_state['processed'] = True
+                                            
+                                            st.success(f"✅ {sheet_name} processed successfully!")
+                                            st.rerun()
+                                    
+                                    except Exception as e:
+                                        st.markdown(f"""
+                                        <div class="error-box">
+                                            <strong>❌ Processing Failed for {sheet_name}</strong><br>
+                                            {str(e)}
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                        st.exception(e)
             else:
-                # Single sheet - use the only sheet name
+                # Single sheet - use the only sheet name (no tabs needed)
                 selected_sheet = sheet_names[0] if sheet_names else None
                 st.session_state['selected_sheet'] = selected_sheet
                 st.markdown("""
@@ -2139,215 +2355,217 @@ def run_main_app():
                 </div>
                 """, unsafe_allow_html=True)
             
-            if selected_sheet and selected_sheet in inferred_schemas:
-                schema_info = inferred_schemas[selected_sheet]
-                type_options = ["STRING", "INT64", "FLOAT64", "BOOL", "DATE", "TIMESTAMP"]
-                
-                # Initialize user-selected types structure if not exists
-                if 'user_selected_types' not in st.session_state:
-                    st.session_state['user_selected_types'] = {}
-                
-                # Initialize user-selected types for this sheet if not exists
-                if selected_sheet not in st.session_state['user_selected_types']:
-                    st.session_state['user_selected_types'][selected_sheet] = {
-                        col: info['type'] for col, info in schema_info.items()
-                    }
-                else:
-                    # Update user_selected_types for this sheet to match current schema (add new columns, remove old ones)
-                    current_types = st.session_state['user_selected_types'][selected_sheet]
-                    new_types = {}
-                    for col, info in schema_info.items():
-                        # Use existing selection if column exists, otherwise use inferred type
-                        new_types[col] = current_types.get(col, info['type'])
-                    st.session_state['user_selected_types'][selected_sheet] = new_types
-                
-                # Create schema review table
-                review_data = []
-                for col_name, col_info in schema_info.items():
-                    inferred_type = col_info['type']
-                    sample_vals = col_info.get('sample_values', [])
-                    null_count = col_info.get('null_count', 0)
-                    total_count = col_info.get('total_count', 0)
+            if len(sheet_names) == 1:
+                # Single sheet - show schema review (existing code)
+                selected_sheet = sheet_names[0] if sheet_names else None
+                if selected_sheet and selected_sheet in inferred_schemas:
+                    schema_info = inferred_schemas[selected_sheet]
                     
-                    # Build sample display with null indicator if needed
-                    if sample_vals:
-                        sample_display = ", ".join(sample_vals)
-                        if len(sample_display) > 50:
-                            sample_display = sample_display[:47] + "..."
+                    # Initialize user-selected types for this sheet if not exists
+                    if selected_sheet not in st.session_state['user_selected_types']:
+                        st.session_state['user_selected_types'][selected_sheet] = {
+                            col: info['type'] for col, info in schema_info.items()
+                        }
                     else:
-                        sample_display = "(no data)"
+                        # Update user_selected_types for this sheet to match current schema (add new columns, remove old ones)
+                        current_types = st.session_state['user_selected_types'][selected_sheet]
+                        new_types = {}
+                        for col, info in schema_info.items():
+                            # Use existing selection if column exists, otherwise use inferred type
+                            new_types[col] = current_types.get(col, info['type'])
+                        st.session_state['user_selected_types'][selected_sheet] = new_types
                     
-                    # Add null count indicator if there are nulls
-                    if null_count > 0:
-                        null_percentage = (null_count / total_count * 100) if total_count > 0 else 0
-                        null_indicator = f" <span style='color: #dc2626; font-size: 0.85rem;'>({null_count} null)</span>"
-                        sample_display = sample_display + null_indicator
+                    # Create schema review table
+                    review_data = []
+                    for col_name, col_info in schema_info.items():
+                        inferred_type = col_info['type']
+                        sample_vals = col_info.get('sample_values', [])
+                        null_count = col_info.get('null_count', 0)
+                        total_count = col_info.get('total_count', 0)
+                        
+                        # Build sample display with null indicator if needed
+                        if sample_vals:
+                            sample_display = ", ".join(sample_vals)
+                            if len(sample_display) > 50:
+                                sample_display = sample_display[:47] + "..."
+                        else:
+                            sample_display = "(no data)"
+                        
+                        # Add null count indicator if there are nulls
+                        if null_count > 0:
+                            null_percentage = (null_count / total_count * 100) if total_count > 0 else 0
+                            null_indicator = f" <span style='color: #dc2626; font-size: 0.85rem;'>({null_count} null)</span>"
+                            sample_display = sample_display + null_indicator
+                        
+                        # Get current user selection for this sheet and column
+                        sheet_types = st.session_state['user_selected_types'].get(selected_sheet, {})
+                        current_selection = sheet_types.get(col_name, inferred_type)
+                        
+                        review_data.append({
+                            'Column Name': col_name,
+                            'Inferred Type': inferred_type,
+                            'Selected Type': current_selection,
+                            'Sample Values': sample_display
+                        })
                     
-                    # Get current user selection for this sheet and column
-                    sheet_types = st.session_state['user_selected_types'].get(selected_sheet, {})
-                    current_selection = sheet_types.get(col_name, inferred_type)
+                    # Display as dataframe for better formatting
+                    review_df = pd.DataFrame(review_data)
                     
-                    review_data.append({
-                        'Column Name': col_name,
-                        'Inferred Type': inferred_type,
-                        'Selected Type': current_selection,
-                        'Sample Values': sample_display
-                    })
-                
-                # Display as dataframe for better formatting
-                review_df = pd.DataFrame(review_data)
-                
-                # Show sheet name if multiple sheets
-                if len(sheet_names) > 1:
-                    st.markdown(f'<h3 style="margin-top: 0; margin-bottom: 1rem;">Sheet: <strong>{selected_sheet}</strong></h3>', unsafe_allow_html=True)
-                
-                # Info message about form pattern
-                st.info("💡 **Tip:** Make all your schema changes below, then click 'Apply Schema Changes' to update them all at once. This is faster for large datasets!")
-                
-                # Wrap schema review in a form to batch changes
-                with st.form(key=f"schema_form_{selected_sheet}", clear_on_submit=False):
-                    # Create editable interface using columns with improved styling
-                    st.markdown("""
-                    <div class="schema-review-container">
-                    """, unsafe_allow_html=True)
+                    # Info message about form pattern
+                    st.info("💡 **Tip:** Make all your schema changes below, then click 'Apply Schema Changes' to update them all at once. This is faster for large datasets!")
                     
-                    # Store form selections temporarily
-                    form_selections = {}
-                    
-                    # Display table with editable dropdowns
-                    for idx, row in review_df.iterrows():
-                        col_name = row['Column Name']
-                        inferred_type = row['Inferred Type']
-                        sample_vals = row['Sample Values']
+                    # Wrap schema review in a form to batch changes
+                    with st.form(key=f"schema_form_{selected_sheet}", clear_on_submit=False):
+                        # Create editable interface using columns with improved styling
+                        st.markdown("""
+                        <div class="schema-review-container">
+                        """, unsafe_allow_html=True)
                         
-                        # Add row styling
-                        st.markdown(f'<div class="schema-review-row">', unsafe_allow_html=True)
+                        # Store form selections temporarily
+                        form_selections = {}
                         
-                        col1, col2, col3, col4 = st.columns([2, 1.5, 1.5, 3])
-                        
-                        with col1:
-                            st.markdown(f'<div class="schema-column-name">{col_name}</div>', unsafe_allow_html=True)
-                        
-                        with col2:
-                            st.markdown(f'<span class="schema-inferred-type">{inferred_type}</span>', unsafe_allow_html=True)
-                        
-                        with col3:
-                            sheet_types = st.session_state['user_selected_types'].get(selected_sheet, {})
-                            current_type = sheet_types.get(col_name, inferred_type)
-                            try:
-                                default_index = type_options.index(current_type)
-                            except ValueError:
-                                # If current type is not in options, default to inferred type
-                                default_index = type_options.index(inferred_type) if inferred_type in type_options else 0
+                        # Display table with editable dropdowns
+                        for idx, row in review_df.iterrows():
+                            col_name = row['Column Name']
+                            inferred_type = row['Inferred Type']
+                            sample_vals = row['Sample Values']
                             
-                            selected_type = st.selectbox(
-                                f"Type for {col_name}",
-                                type_options,
-                                index=default_index,
-                                key=f"form_type_select_{selected_sheet}_{col_name}",
-                                label_visibility="collapsed"
-                            )
-                            # Store selection temporarily (won't update session state until form submit)
-                            form_selections[col_name] = selected_type
-                        
-                        with col4:
-                            st.markdown(f'<div class="schema-sample-values">{sample_vals}</div>', unsafe_allow_html=True)
-                        
-                        st.markdown('</div>', unsafe_allow_html=True)
-                        
-                        if idx < len(review_df) - 1:
-                            st.markdown('<hr style="margin: 1rem 0; border: none; border-top: 1px solid #e5e7eb;">', unsafe_allow_html=True)
-                    
-                    st.markdown("</div>", unsafe_allow_html=True)
-                    
-                    # Submit button to apply all changes at once
-                    col1, col2, col3 = st.columns([1, 1, 1])
-                    with col2:
-                        apply_changes = st.form_submit_button("Apply Schema Changes", use_container_width=True, type="primary")
-                    
-                    # Apply all changes when form is submitted
-                    if apply_changes:
-                        # Update session state with all form selections at once
-                        if selected_sheet not in st.session_state['user_selected_types']:
-                            st.session_state['user_selected_types'][selected_sheet] = {}
-                        # Batch update all column types
-                        for col_name, selected_type in form_selections.items():
-                            st.session_state['user_selected_types'][selected_sheet][col_name] = selected_type
-                        st.success("✅ Schema changes applied! You can now process the file.")
-                        st.rerun()
-            
-            # Process with schema button
-            st.markdown("---")
-            process_with_schema_btn = st.button("Process with this schema", type="primary", use_container_width=True, key="process_with_schema")
-            
-            if process_with_schema_btn:
-                with st.spinner("Processing your file with the selected schemas..."):
-                    try:
-                        with tempfile.TemporaryDirectory() as temp_dir:
-                            temp_dir = Path(temp_dir)
+                            # Add row styling
+                            st.markdown(f'<div class="schema-review-row">', unsafe_allow_html=True)
                             
-                            input_path = temp_dir / uploaded_file.name
-                            # Reset file pointer
-                            uploaded_file.seek(0)
-                            with open(input_path, 'wb') as f:
-                                f.write(uploaded_file.getvalue())
+                            col1, col2, col3, col4 = st.columns([2, 1.5, 1.5, 3])
                             
-                            output_dir = temp_dir / "output"
-                            output_dir.mkdir()
+                            with col1:
+                                st.markdown(f'<div class="schema-column-name">{col_name}</div>', unsafe_allow_html=True)
                             
-                            file_ext = input_path.suffix.lower()
+                            with col2:
+                                st.markdown(f'<span class="schema-inferred-type">{inferred_type}</span>', unsafe_allow_html=True)
                             
-                            # Get user-selected types per sheet
-                            user_selected_types_all = st.session_state.get('user_selected_types', {})
-                            
-                            # Process with override_types per sheet
-                            if file_ext in {'.xlsx', '.xlsm', '.xls'}:
-                                # For Excel, process all sheets with their respective override_types
-                                sheets = pd.read_excel(
-                                    input_path,
-                                    sheet_name=None,
-                                    dtype=str,
-                                    keep_default_na=False,
-                                    engine="openpyxl"
+                            with col3:
+                                sheet_types = st.session_state['user_selected_types'].get(selected_sheet, {})
+                                current_type = sheet_types.get(col_name, inferred_type)
+                                try:
+                                    default_index = type_options.index(current_type)
+                                except ValueError:
+                                    # If current type is not in options, default to inferred type
+                                    default_index = type_options.index(inferred_type) if inferred_type in type_options else 0
+                                
+                                selected_type = st.selectbox(
+                                    f"Type for {col_name}",
+                                    type_options,
+                                    index=default_index,
+                                    key=f"form_type_select_{selected_sheet}_{col_name}",
+                                    label_visibility="collapsed"
                                 )
-                                for sheet_name, df_sheet in sheets.items():
-                                    # Get override_types for this specific sheet
-                                    override_types = user_selected_types_all.get(sheet_name, {})
-                                    process_sheet(sheet_name, df_sheet, output_dir, override_types=override_types)
-                            elif file_ext == '.csv':
-                                # For CSV, use the sheet name (filename without extension)
-                                sheet_name = input_path.stem
-                                df = pd.read_csv(input_path, dtype=str, keep_default_na=False, engine="python", on_bad_lines="skip")
-                                override_types = user_selected_types_all.get(sheet_name, {})
-                                process_sheet(sheet_name, df, output_dir, override_types=override_types)
-                            else:
-                                st.error("Unsupported file type. Please upload .xlsx, .xls, or .csv files.")
-                                return
+                                # Store selection temporarily (won't update session state until form submit)
+                                form_selections[col_name] = selected_type
                             
-                            # Store output files
-                            st.session_state['output_files'] = {}
-                            for file_path in output_dir.rglob('*'):
-                                if file_path.is_file():
-                                    relative_path = file_path.relative_to(output_dir)
-                                    with open(file_path, 'rb') as f:
-                                        st.session_state['output_files'][str(relative_path)] = f.read()
+                            with col4:
+                                st.markdown(f'<div class="schema-sample-values">{sample_vals}</div>', unsafe_allow_html=True)
                             
-                            st.session_state['processed'] = True
-                            st.session_state['schema_review_done'] = True
+                            st.markdown('</div>', unsafe_allow_html=True)
+                            
+                            if idx < len(review_df) - 1:
+                                st.markdown('<hr style="margin: 1rem 0; border: none; border-top: 1px solid #e5e7eb;">', unsafe_allow_html=True)
+                        
+                        st.markdown("</div>", unsafe_allow_html=True)
+                        
+                        # Submit button to apply all changes at once
+                        col1, col2, col3 = st.columns([1, 1, 1])
+                        with col2:
+                            apply_changes = st.form_submit_button("Apply Schema Changes", use_container_width=True, type="primary")
+                        
+                        # Apply all changes when form is submitted
+                        if apply_changes:
+                            # Update session state with all form selections at once
+                            if selected_sheet not in st.session_state['user_selected_types']:
+                                st.session_state['user_selected_types'][selected_sheet] = {}
+                            # Batch update all column types
+                            for col_name, selected_type in form_selections.items():
+                                st.session_state['user_selected_types'][selected_sheet][col_name] = selected_type
+                            st.success("✅ Schema changes applied! You can now process the file.")
                             st.rerun()
                     
-                    except Exception as e:
-                        st.markdown(f"""
-                        <div class="error-box">
-                            <strong>❌ Processing Failed</strong><br>
-                            {str(e)}
-                        </div>
-                        """, unsafe_allow_html=True)
-                        st.exception(e)
-                        st.session_state['processed'] = False
+                    # Process button for single sheet (outside form, after schema review)
+                    st.markdown("---")
+                    process_with_schema_btn = st.button("Process with this schema", type="primary", use_container_width=True, key="process_with_schema")
+                    
+                    if process_with_schema_btn:
+                        with st.spinner("Processing your file with the selected schemas..."):
+                            try:
+                                with tempfile.TemporaryDirectory() as temp_dir:
+                                    temp_dir = Path(temp_dir)
+                                    
+                                    input_path = temp_dir / uploaded_file.name
+                                    # Reset file pointer
+                                    uploaded_file.seek(0)
+                                    with open(input_path, 'wb') as f:
+                                        f.write(uploaded_file.getvalue())
+                                    
+                                    output_dir = temp_dir / "output"
+                                    output_dir.mkdir()
+                                    
+                                    file_ext = input_path.suffix.lower()
+                                    
+                                    # Get user-selected types per sheet
+                                    user_selected_types_all = st.session_state.get('user_selected_types', {})
+                                    
+                                    # Process with override_types per sheet
+                                    if file_ext in {'.xlsx', '.xlsm', '.xls'}:
+                                        # For Excel, process all sheets with their respective override_types
+                                        sheets = pd.read_excel(
+                                            input_path,
+                                            sheet_name=None,
+                                            dtype=str,
+                                            keep_default_na=False,
+                                            engine="openpyxl"
+                                        )
+                                        for sheet_name, df_sheet in sheets.items():
+                                            # Get override_types for this specific sheet
+                                            override_types = user_selected_types_all.get(sheet_name, {})
+                                            process_sheet(sheet_name, df_sheet, output_dir, override_types=override_types)
+                                    elif file_ext == '.csv':
+                                        # For CSV, use the sheet name (filename without extension)
+                                        sheet_name = input_path.stem
+                                        df = pd.read_csv(input_path, dtype=str, keep_default_na=False, engine="python", on_bad_lines="skip")
+                                        override_types = user_selected_types_all.get(sheet_name, {})
+                                        process_sheet(sheet_name, df, output_dir, override_types=override_types)
+                                    else:
+                                        st.error("Unsupported file type. Please upload .xlsx, .xls, or .csv files.")
+                                        return
+                                    
+                                    # Store output files
+                                    st.session_state['output_files'] = {}
+                                    for file_path in output_dir.rglob('*'):
+                                        if file_path.is_file():
+                                            relative_path = file_path.relative_to(output_dir)
+                                            with open(file_path, 'rb') as f:
+                                                st.session_state['output_files'][str(relative_path)] = f.read()
+                                    
+                                    st.session_state['processed'] = True
+                                    st.session_state['schema_review_done'] = True
+                                    st.rerun()
+                            
+                            except Exception as e:
+                                st.markdown(f"""
+                                <div class="error-box">
+                                    <strong>❌ Processing Failed</strong><br>
+                                    {str(e)}
+                                </div>
+                                """, unsafe_allow_html=True)
+                                st.exception(e)
+                                st.session_state['processed'] = False
                         
-        # Only show processed results if we have a file and it's been processed
-        if uploaded_file is not None and st.session_state.get('processed', False) and st.session_state.get('uploaded_file_name') == uploaded_file.name:
+        # Only show processed results if we have a file and it's been processed (or has output files)
+        # For multi-sheet: show if any sheets are processed (has output_files)
+        # For single sheet: show if processed flag is True
+        has_output_files = bool(st.session_state.get('output_files', {}))
+        is_processed = st.session_state.get('processed', False)
+        should_show_downloads = (uploaded_file is not None and 
+                                 st.session_state.get('uploaded_file_name') == uploaded_file.name and
+                                 (is_processed or has_output_files))
+        
+        if should_show_downloads:
             with tempfile.TemporaryDirectory() as display_temp_dir:
                 display_temp_dir = Path(display_temp_dir)
                 output_dir = display_temp_dir / "output"
@@ -2373,25 +2591,6 @@ def run_main_app():
                 
                 base_name = st.session_state.get('uploaded_file_name', 'processed').split('.')[0]
                 
-                with tempfile.TemporaryDirectory() as zip_temp_dir:
-                    zip_temp_dir = Path(zip_temp_dir)
-                    zip_output_dir = zip_temp_dir / "output"
-                    zip_output_dir.mkdir()
-                    
-                    for file_path_str, file_content in st.session_state.get('output_files', {}).items():
-                        file_path = zip_output_dir / file_path_str
-                        file_path.parent.mkdir(parents=True, exist_ok=True)
-                        with open(file_path, 'wb') as f:
-                            f.write(file_content)
-                    
-                    csv_zip_data = create_csv_zip(zip_output_dir)
-                    schema_json_zip_data = create_schema_zip(zip_output_dir)
-                    summary_zip_data = create_summary_zip(zip_output_dir)
-                    all_zip_data = create_download_zip(zip_output_dir)
-                
-                # Individual file downloads section - Grouped by sheet
-                st.markdown('<h3>Individual File Downloads</h3>', unsafe_allow_html=True)
-                
                 # Get all files from output directory
                 output_files_list = []
                 for file_path_str in st.session_state.get('output_files', {}).keys():
@@ -2402,28 +2601,171 @@ def run_main_app():
                 files_by_sheet = {}
                 for file_path in output_files_list:
                     # Remove extension and any suffix like "_bq_schema" or "_summary"
-                    base_name = file_path.stem
+                    base_name_file = file_path.stem
                     # Remove known suffixes
                     for suffix in ['_bq_schema', '_summary']:
-                        if base_name.endswith(suffix):
-                            base_name = base_name[:-len(suffix)]
+                        if base_name_file.endswith(suffix):
+                            base_name_file = base_name_file[:-len(suffix)]
                     
-                    if base_name not in files_by_sheet:
-                        files_by_sheet[base_name] = []
-                    files_by_sheet[base_name].append(file_path)
+                    if base_name_file not in files_by_sheet:
+                        files_by_sheet[base_name_file] = []
+                    files_by_sheet[base_name_file].append(file_path)
                 
                 # Sort sheets and files within each sheet
                 for sheet_name in files_by_sheet:
                     files_by_sheet[sheet_name].sort(key=lambda x: x.name)
                 
-                # Display files grouped by sheet
-                for sheet_name in sorted(files_by_sheet.keys()):
+                # Get sheet names from session state
+                sheet_names = st.session_state.get('sheet_names', [])
+                
+                # Filter to only show tabs for sheets that have been processed (have files)
+                processed_sheet_names = [name for name in sheet_names if name in files_by_sheet]
+                
+                # Use tabs for multiple sheets, single view for one sheet
+                if len(processed_sheet_names) > 1:
+                    # Multiple processed sheets - use tabs for downloads (only show processed sheets)
+                    download_tabs = st.tabs(processed_sheet_names)
+                    
+                    # Process each sheet in its own download tab
+                    for tab_idx, (tab, sheet_name) in enumerate(zip(download_tabs, processed_sheet_names)):
+                        with tab:
+                            if sheet_name in files_by_sheet:
+                                sheet_files = files_by_sheet[sheet_name]
+                                
+                                st.markdown('<h3 style="margin-top: 0;">Individual File Downloads</h3>', unsafe_allow_html=True)
+                                
+                                # Group files by type for this sheet
+                                csv_files = [f for f in sheet_files if f.suffix.lower() == '.csv']
+                                schema_json_files = [f for f in sheet_files if '_bq_schema.json' in f.name]
+                                summary_files = [f for f in sheet_files if '_summary.txt' in f.name]
+                                
+                                # Display CSV file
+                                if csv_files:
+                                    num_cols = min(4, len(csv_files))
+                                    cols = st.columns(num_cols, gap="small")
+                                    for idx, file_path in enumerate(csv_files):
+                                        relative_path_str = str(file_path)
+                                        file_data = st.session_state.get('output_files', {}).get(relative_path_str, b'')
+                                        if file_data:
+                                            with cols[idx % len(cols)]:
+                                                display_name = "Cleaned CSV" if len(csv_files) == 1 else file_path.name
+                                                if len(display_name) > 25:
+                                                    display_name = display_name[:22] + "..."
+                                                st.download_button(
+                                                    label=display_name,
+                                                    data=file_data,
+                                                    file_name=file_path.name,
+                                                    mime="text/csv",
+                                                    key=f"csv_{sheet_name}_{file_path.name}_{idx}",
+                                                    use_container_width=True
+                                                )
+                                
+                                # Display Schema JSON file
+                                if schema_json_files:
+                                    num_cols = min(4, len(schema_json_files))
+                                    cols = st.columns(num_cols, gap="small")
+                                    for idx, file_path in enumerate(schema_json_files):
+                                        relative_path_str = str(file_path)
+                                        file_data = st.session_state.get('output_files', {}).get(relative_path_str, b'')
+                                        if file_data:
+                                            with cols[idx % len(cols)]:
+                                                display_name = "Schema (JSON)" if len(schema_json_files) == 1 else file_path.name
+                                                if len(display_name) > 25:
+                                                    display_name = display_name[:22] + "..."
+                                                st.download_button(
+                                                    label=display_name,
+                                                    data=file_data,
+                                                    file_name=file_path.name,
+                                                    mime="application/json",
+                                                    key=f"schema_json_{sheet_name}_{file_path.name}_{idx}",
+                                                    use_container_width=True
+                                                )
+                                
+                                # Display Summary file
+                                if summary_files:
+                                    num_cols = min(4, len(summary_files))
+                                    cols = st.columns(num_cols, gap="small")
+                                    for idx, file_path in enumerate(summary_files):
+                                        relative_path_str = str(file_path)
+                                        file_data = st.session_state.get('output_files', {}).get(relative_path_str, b'')
+                                        if file_data:
+                                            with cols[idx % len(cols)]:
+                                                display_name = "Summary" if len(summary_files) == 1 else file_path.name
+                                                if len(display_name) > 25:
+                                                    display_name = display_name[:22] + "..."
+                                                st.download_button(
+                                                    label=display_name,
+                                                    data=file_data,
+                                                    file_name=file_path.name,
+                                                    mime="text/plain",
+                                                    key=f"summary_{sheet_name}_{file_path.name}_{idx}",
+                                                    use_container_width=True
+                                                )
+                            else:
+                                st.info(f"No files found for sheet: {sheet_name}")
+                    
+                    # Bulk download buttons (for all processed sheets) - shown after tabs
+                    if len(processed_sheet_names) > 0:
+                        st.markdown("---")
+                        st.markdown('<h3>Bulk Downloads (All Processed Sheets)</h3>', unsafe_allow_html=True)
+                    
+                    with tempfile.TemporaryDirectory() as zip_temp_dir:
+                        zip_temp_dir = Path(zip_temp_dir)
+                        zip_output_dir = zip_temp_dir / "output"
+                        zip_output_dir.mkdir()
+                        
+                        for file_path_str, file_content in st.session_state.get('output_files', {}).items():
+                            file_path = zip_output_dir / file_path_str
+                            file_path.parent.mkdir(parents=True, exist_ok=True)
+                            with open(file_path, 'wb') as f:
+                                f.write(file_content)
+                        
+                        csv_zip_data = create_csv_zip(zip_output_dir)
+                        schema_json_zip_data = create_schema_zip(zip_output_dir)
+                        summary_zip_data = create_summary_zip(zip_output_dir)
+                        all_zip_data = create_download_zip(zip_output_dir)
+                    
+                    # Center the three buttons with spacer columns
+                    col_spacer1, col1, col2, col3, col_spacer2 = st.columns([1, 1.5, 1.5, 1.5, 1])
+                    
+                    with col1:
+                        st.download_button(
+                            label="Download CSV Files",
+                            data=csv_zip_data,
+                            file_name=f"{base_name}_csv_files.zip",
+                            mime="application/zip",
+                            help="Download all processed CSV files",
+                            use_container_width=True,
+                            key=f"bulk_csv_{base_name}"
+                        )
+                    
+                    with col2:
+                        st.download_button(
+                            label="Download Schema (JSON)",
+                            data=schema_json_zip_data,
+                            file_name=f"{base_name}_schemas_json.zip",
+                            mime="application/zip",
+                            help="Download all BigQuery schema JSON files",
+                            use_container_width=True,
+                            key=f"bulk_schema_json_{base_name}"
+                        )
+                    
+                    with col3:
+                        st.download_button(
+                            label="Download All (ZIP)",
+                            data=all_zip_data,
+                            file_name=f"{base_name}_all_files.zip",
+                            mime="application/zip",
+                            help="Download all processed files including CSV, JSON schema, and summary files",
+                            use_container_width=True,
+                            key=f"bulk_all_{base_name}"
+                        )
+                elif len(processed_sheet_names) == 1:
+                    # Single processed sheet - show downloads in single view (no tabs)
+                    sheet_name = processed_sheet_names[0]
                     sheet_files = files_by_sheet[sheet_name]
                     
-                    # Show sheet name header if multiple sheets
-                    sheet_names = st.session_state.get('sheet_names', [])
-                    if len(sheet_names) > 1:
-                        st.markdown(f'<h4 style="margin-top: 1.5rem; margin-bottom: 0.75rem; color: #177091; font-size: 1.1rem;">Sheet: {sheet_name}</h4>', unsafe_allow_html=True)
+                    st.markdown('<h3>Individual File Downloads</h3>', unsafe_allow_html=True)
                     
                     # Group files by type for this sheet
                     csv_files = [f for f in sheet_files if f.suffix.lower() == '.csv']
@@ -2492,45 +2834,194 @@ def run_main_app():
                                         key=f"summary_{sheet_name}_{file_path.name}_{idx}",
                                         use_container_width=True
                                     )
-                
-                # Bulk download buttons
-                st.markdown("---")
-                st.markdown('<h3>Bulk Downloads</h3>', unsafe_allow_html=True)
-                # Center the three buttons with spacer columns
-                col_spacer1, col1, col2, col3, col_spacer2 = st.columns([1, 1.5, 1.5, 1.5, 1])
-                
-                with col1:
-                    st.download_button(
-                        label="Download CSV Files",
-                        data=csv_zip_data,
-                        file_name=f"{base_name}_csv_files.zip",
-                        mime="application/zip",
-                        help="Download all processed CSV files",
-                        use_container_width=True,
-                        key=f"bulk_csv_{base_name}"
-                    )
-                
-                with col2:
-                    st.download_button(
-                        label="Download Schema (JSON)",
-                        data=schema_json_zip_data,
-                        file_name=f"{base_name}_schemas_json.zip",
-                        mime="application/zip",
-                        help="Download all BigQuery schema JSON files",
-                        use_container_width=True,
-                        key=f"bulk_schema_json_{base_name}"
-                    )
-                
-                with col3:
-                    st.download_button(
-                        label="Download All (ZIP)",
-                        data=all_zip_data,
-                        file_name=f"{base_name}_all_files.zip",
-                        mime="application/zip",
-                        help="Download all processed files including CSV, JSON schema, and summary files",
-                        use_container_width=True,
-                        key=f"bulk_all_{base_name}"
-                    )
+                    
+                    # Bulk download buttons
+                    st.markdown("---")
+                    st.markdown('<h3>Bulk Downloads</h3>', unsafe_allow_html=True)
+                    
+                    with tempfile.TemporaryDirectory() as zip_temp_dir:
+                        zip_temp_dir = Path(zip_temp_dir)
+                        zip_output_dir = zip_temp_dir / "output"
+                        zip_output_dir.mkdir()
+                        
+                        for file_path_str, file_content in st.session_state.get('output_files', {}).items():
+                            file_path = zip_output_dir / file_path_str
+                            file_path.parent.mkdir(parents=True, exist_ok=True)
+                            with open(file_path, 'wb') as f:
+                                f.write(file_content)
+                        
+                        csv_zip_data = create_csv_zip(zip_output_dir)
+                        schema_json_zip_data = create_schema_zip(zip_output_dir)
+                        summary_zip_data = create_summary_zip(zip_output_dir)
+                        all_zip_data = create_download_zip(zip_output_dir)
+                    
+                    # Center the three buttons with spacer columns
+                    col_spacer1, col1, col2, col3, col_spacer2 = st.columns([1, 1.5, 1.5, 1.5, 1])
+                    
+                    with col1:
+                        st.download_button(
+                            label="Download CSV Files",
+                            data=csv_zip_data,
+                            file_name=f"{base_name}_csv_files.zip",
+                            mime="application/zip",
+                            help="Download all processed CSV files",
+                            use_container_width=True,
+                            key=f"bulk_csv_{base_name}"
+                        )
+                    
+                    with col2:
+                        st.download_button(
+                            label="Download Schema (JSON)",
+                            data=schema_json_zip_data,
+                            file_name=f"{base_name}_schemas_json.zip",
+                            mime="application/zip",
+                            help="Download all BigQuery schema JSON files",
+                            use_container_width=True,
+                            key=f"bulk_schema_json_{base_name}"
+                        )
+                    
+                    with col3:
+                        st.download_button(
+                            label="Download All (ZIP)",
+                            data=all_zip_data,
+                            file_name=f"{base_name}_all_files.zip",
+                            mime="application/zip",
+                            help="Download all processed files including CSV, JSON schema, and summary files",
+                            use_container_width=True,
+                            key=f"bulk_all_{base_name}"
+                        )
+                else:
+                    # No processed sheets or single sheet file - show downloads in single view (existing behavior)
+                    with tempfile.TemporaryDirectory() as zip_temp_dir:
+                        zip_temp_dir = Path(zip_temp_dir)
+                        zip_output_dir = zip_temp_dir / "output"
+                        zip_output_dir.mkdir()
+                        
+                        for file_path_str, file_content in st.session_state.get('output_files', {}).items():
+                            file_path = zip_output_dir / file_path_str
+                            file_path.parent.mkdir(parents=True, exist_ok=True)
+                            with open(file_path, 'wb') as f:
+                                f.write(file_content)
+                        
+                        csv_zip_data = create_csv_zip(zip_output_dir)
+                        schema_json_zip_data = create_schema_zip(zip_output_dir)
+                        summary_zip_data = create_summary_zip(zip_output_dir)
+                        all_zip_data = create_download_zip(zip_output_dir)
+                    
+                    # Individual file downloads section
+                    st.markdown('<h3>Individual File Downloads</h3>', unsafe_allow_html=True)
+                    
+                    # Display files for the single sheet
+                    if files_by_sheet:
+                        sheet_name = list(files_by_sheet.keys())[0]
+                        sheet_files = files_by_sheet[sheet_name]
+                        
+                        # Group files by type for this sheet
+                        csv_files = [f for f in sheet_files if f.suffix.lower() == '.csv']
+                        schema_json_files = [f for f in sheet_files if '_bq_schema.json' in f.name]
+                        summary_files = [f for f in sheet_files if '_summary.txt' in f.name]
+                        
+                        # Display CSV file
+                        if csv_files:
+                            num_cols = min(4, len(csv_files))
+                            cols = st.columns(num_cols, gap="small")
+                            for idx, file_path in enumerate(csv_files):
+                                relative_path_str = str(file_path)
+                                file_data = st.session_state.get('output_files', {}).get(relative_path_str, b'')
+                                if file_data:
+                                    with cols[idx % len(cols)]:
+                                        display_name = "Cleaned CSV" if len(csv_files) == 1 else file_path.name
+                                        if len(display_name) > 25:
+                                            display_name = display_name[:22] + "..."
+                                st.download_button(
+                                            label=display_name,
+                                    data=file_data,
+                                    file_name=file_path.name,
+                                            mime="text/csv",
+                                            key=f"csv_{sheet_name}_{file_path.name}_{idx}",
+                                            use_container_width=True
+                                        )
+                        
+                        # Display Schema JSON file
+                        if schema_json_files:
+                            num_cols = min(4, len(schema_json_files))
+                            cols = st.columns(num_cols, gap="small")
+                            for idx, file_path in enumerate(schema_json_files):
+                                relative_path_str = str(file_path)
+                                file_data = st.session_state.get('output_files', {}).get(relative_path_str, b'')
+                                if file_data:
+                                    with cols[idx % len(cols)]:
+                                        display_name = "Schema (JSON)" if len(schema_json_files) == 1 else file_path.name
+                                        if len(display_name) > 25:
+                                            display_name = display_name[:22] + "..."
+                                        st.download_button(
+                                            label=display_name,
+                                            data=file_data,
+                                            file_name=file_path.name,
+                                            mime="application/json",
+                                            key=f"schema_json_{sheet_name}_{file_path.name}_{idx}",
+                                            use_container_width=True
+                                        )
+                        
+                        # Display Summary file
+                        if summary_files:
+                            num_cols = min(4, len(summary_files))
+                            cols = st.columns(num_cols, gap="small")
+                            for idx, file_path in enumerate(summary_files):
+                                relative_path_str = str(file_path)
+                                file_data = st.session_state.get('output_files', {}).get(relative_path_str, b'')
+                                if file_data:
+                                    with cols[idx % len(cols)]:
+                                        display_name = "Summary" if len(summary_files) == 1 else file_path.name
+                                        if len(display_name) > 25:
+                                            display_name = display_name[:22] + "..."
+                                        st.download_button(
+                                            label=display_name,
+                                            data=file_data,
+                                            file_name=file_path.name,
+                                            mime="text/plain",
+                                            key=f"summary_{sheet_name}_{file_path.name}_{idx}",
+                                            use_container_width=True
+                                        )
+                    
+                    # Bulk download buttons
+                    st.markdown("---")
+                    st.markdown('<h3>Bulk Downloads</h3>', unsafe_allow_html=True)
+                    # Center the three buttons with spacer columns
+                    col_spacer1, col1, col2, col3, col_spacer2 = st.columns([1, 1.5, 1.5, 1.5, 1])
+                    
+                    with col1:
+                        st.download_button(
+                            label="Download CSV Files",
+                            data=csv_zip_data,
+                            file_name=f"{base_name}_csv_files.zip",
+                            mime="application/zip",
+                            help="Download all processed CSV files",
+                            use_container_width=True,
+                            key=f"bulk_csv_{base_name}"
+                        )
+                    
+                    with col2:
+                        st.download_button(
+                            label="Download Schema (JSON)",
+                            data=schema_json_zip_data,
+                            file_name=f"{base_name}_schemas_json.zip",
+                            mime="application/zip",
+                            help="Download all BigQuery schema JSON files",
+                            use_container_width=True,
+                            key=f"bulk_schema_json_{base_name}"
+                        )
+                    
+                    with col3:
+                        st.download_button(
+                            label="Download All (ZIP)",
+                            data=all_zip_data,
+                            file_name=f"{base_name}_all_files.zip",
+                            mime="application/zip",
+                            help="Download all processed files including CSV, JSON schema, and summary files",
+                            use_container_width=True,
+                            key=f"bulk_all_{base_name}"
+                        )
     
     # Footer
     render_shared_footer()
