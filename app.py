@@ -2002,7 +2002,7 @@ def run_main_app():
             keys_to_clear = [
                 'uploaded_file_name', 'schema_review_done', 'inferred_schemas',
                 'raw_dataframes', 'processed', 'output_files', 'user_selected_types',
-                'sheet_names', 'selected_sheet'
+                'sheet_names', 'selected_sheet', 'deleted_columns'
             ]
             for key in keys_to_clear:
                 if key in st.session_state:
@@ -2118,6 +2118,10 @@ def run_main_app():
             if 'user_selected_types' not in st.session_state:
                 st.session_state['user_selected_types'] = {}
             
+            # Initialize deleted columns structure if not exists
+            if 'deleted_columns' not in st.session_state:
+                st.session_state['deleted_columns'] = {}
+            
             type_options = ["STRING", "INT64", "FLOAT64", "BOOL", "DATE", "TIMESTAMP"]
             
             # Use tabs for multiple sheets, single view for one sheet
@@ -2152,9 +2156,16 @@ def run_main_app():
                                     new_types[col] = current_types.get(col, info['type'])
                                 st.session_state['user_selected_types'][sheet_name] = new_types
                             
-                            # Create schema review table for this sheet
+                            # Get deleted columns for this sheet
+                            deleted_cols = st.session_state.get('deleted_columns', {}).get(sheet_name, set())
+                            
+                            # Create schema review table for this sheet (exclude deleted columns)
                             review_data = []
                             for col_name, col_info in schema_info.items():
+                                # Skip deleted columns
+                                if col_name in deleted_cols:
+                                    continue
+                                    
                                 inferred_type = col_info['type']
                                 sample_vals = col_info.get('sample_values', [])
                                 null_count = col_info.get('null_count', 0)
@@ -2198,8 +2209,24 @@ def run_main_app():
                                 <div class="schema-review-container">
                                 """, unsafe_allow_html=True)
                                 
+                                # Header row for column labels
+                                header_col1, header_col2, header_col3, header_col4, header_col5 = st.columns([2, 1.5, 1.5, 3, 0.8])
+                                with header_col1:
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Column Name</div>', unsafe_allow_html=True)
+                                with header_col2:
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Inferred Type</div>', unsafe_allow_html=True)
+                                with header_col3:
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Select Type</div>', unsafe_allow_html=True)
+                                with header_col4:
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Sample Values</div>', unsafe_allow_html=True)
+                                with header_col5:
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Delete</div>', unsafe_allow_html=True)
+                                
+                                st.markdown('<hr style="margin: 0.5rem 0 1rem 0; border: none; border-top: 1px solid #e5e7eb;">', unsafe_allow_html=True)
+                                
                                 # Store form selections temporarily
                                 form_selections = {}
+                                form_deletions = {}
                                 
                                 # Display table with editable dropdowns
                                 for idx, row in review_df.iterrows():
@@ -2210,7 +2237,7 @@ def run_main_app():
                                     # Add row styling
                                     st.markdown(f'<div class="schema-review-row">', unsafe_allow_html=True)
                                     
-                                    col1, col2, col3, col4 = st.columns([2, 1.5, 1.5, 3])
+                                    col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 3, 0.8])
                                     
                                     with col1:
                                         st.markdown(f'<div class="schema-column-name">{col_name}</div>', unsafe_allow_html=True)
@@ -2240,6 +2267,15 @@ def run_main_app():
                                     with col4:
                                         st.markdown(f'<div class="schema-sample-values">{sample_vals}</div>', unsafe_allow_html=True)
                                     
+                                    with col5:
+                                        delete_col = st.checkbox(
+                                            "Delete",
+                                            key=f"form_delete_{sheet_name}_{col_name}",
+                                            label_visibility="collapsed",
+                                            help=f"Delete column '{col_name}'"
+                                        )
+                                        form_deletions[col_name] = delete_col
+                                    
                                     st.markdown('</div>', unsafe_allow_html=True)
                                     
                                     if idx < len(review_df) - 1:
@@ -2247,21 +2283,82 @@ def run_main_app():
                                 
                                 st.markdown("</div>", unsafe_allow_html=True)
                                 
+                                # Check if any columns are marked for deletion by reading checkbox values from session state
+                                columns_to_delete = []
+                                for col_name in form_deletions.keys():
+                                    checkbox_key = f"form_delete_{sheet_name}_{col_name}"
+                                    if checkbox_key in st.session_state and st.session_state[checkbox_key]:
+                                        columns_to_delete.append(col_name)
+                                
+                                # Show warning if columns are marked for deletion
+                                if columns_to_delete:
+                                    st.markdown("""
+                                    <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 1rem; margin: 1rem 0; border-radius: 4px;">
+                                        <strong style="color: #92400e;">⚠️ Warning: Columns Marked for Deletion</strong>
+                                        <p style="color: #78350f; margin: 0.5rem 0 0 0;">The following columns will be permanently removed from the processed data:</p>
+                                        <ul style="color: #78350f; margin: 0.5rem 0 0 1.5rem;">
+                                    """, unsafe_allow_html=True)
+                                    for col in columns_to_delete:
+                                        st.markdown(f'<li style="color: #78350f;">{col}</li>', unsafe_allow_html=True)
+                                    st.markdown("""
+                                        </ul>
+                                        <p style="color: #78350f; margin: 0.5rem 0 0 0; font-weight: 600;">Please confirm below to proceed with deletion.</p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    # Confirmation checkbox
+                                    confirm_key = f"confirm_delete_{sheet_name}"
+                                    confirm_deletion = st.checkbox(
+                                        f"I understand that {len(columns_to_delete)} column(s) will be deleted",
+                                        key=confirm_key,
+                                        value=st.session_state.get(confirm_key, False)
+                                    )
+                                else:
+                                    confirm_deletion = True  # No deletion, so no confirmation needed
+                                
                                 # Submit button to apply all changes at once
                                 col1, col2, col3 = st.columns([1, 1, 1])
                                 with col2:
+                                    # Note: We can't use disabled parameter reliably in forms, so we validate on submit instead
                                     apply_changes = st.form_submit_button("Apply Schema Changes", use_container_width=True, type="primary")
                                 
                                 # Apply all changes when form is submitted
+                                # Check confirmation from session state
+                                confirm_key = f"confirm_delete_{sheet_name}"
+                                is_confirmed = st.session_state.get(confirm_key, True) if columns_to_delete else True
                                 if apply_changes:
-                                    # Update session state with all form selections at once
-                                    if sheet_name not in st.session_state['user_selected_types']:
-                                        st.session_state['user_selected_types'][sheet_name] = {}
-                                    # Batch update all column types
-                                    for col_name, selected_type in form_selections.items():
-                                        st.session_state['user_selected_types'][sheet_name][col_name] = selected_type
-                                    st.success("✅ Schema changes applied! You can now process the file.")
-                                    st.rerun()
+                                    # Double-check confirmation if columns are marked for deletion
+                                    if columns_to_delete and not is_confirmed:
+                                        st.error("⚠️ Please confirm that you understand the columns will be deleted by checking the confirmation box.")
+                                    elif is_confirmed:
+                                        # Update session state with all form selections at once
+                                        if sheet_name not in st.session_state['user_selected_types']:
+                                            st.session_state['user_selected_types'][sheet_name] = {}
+                                        # Batch update all column types
+                                        for col_name, selected_type in form_selections.items():
+                                            st.session_state['user_selected_types'][sheet_name][col_name] = selected_type
+                                        
+                                        # Update deleted columns
+                                        if sheet_name not in st.session_state['deleted_columns']:
+                                            st.session_state['deleted_columns'][sheet_name] = set()
+                                        # Add columns marked for deletion
+                                        for col_name, should_delete in form_deletions.items():
+                                            if should_delete:
+                                                st.session_state['deleted_columns'][sheet_name].add(col_name)
+                                            else:
+                                                # Remove from deleted set if unchecked
+                                                st.session_state['deleted_columns'][sheet_name].discard(col_name)
+                                        
+                                        # Remove deleted columns from user_selected_types
+                                        deleted_cols = st.session_state['deleted_columns'][sheet_name]
+                                        for deleted_col in deleted_cols:
+                                            st.session_state['user_selected_types'][sheet_name].pop(deleted_col, None)
+                                        
+                                        if columns_to_delete:
+                                            st.success(f"✅ Schema changes applied! {len(columns_to_delete)} column(s) deleted. You can now process the file.")
+                                        else:
+                                            st.success("✅ Schema changes applied! You can now process the file.")
+                                        st.rerun()
                             
                             # Process button for this specific sheet (inside the tab)
                             st.markdown("---")
@@ -2293,6 +2390,9 @@ def run_main_app():
                                             user_selected_types_all = st.session_state.get('user_selected_types', {})
                                             override_types = user_selected_types_all.get(sheet_name, {})
                                             
+                                            # Get deleted columns for this sheet
+                                            deleted_cols = st.session_state.get('deleted_columns', {}).get(sheet_name, set())
+                                            
                                             # Process only this specific sheet
                                             if file_ext in {'.xlsx', '.xlsm', '.xls'}:
                                                 # Read only the specific sheet
@@ -2303,10 +2403,16 @@ def run_main_app():
                                                     keep_default_na=False,
                                                     engine="openpyxl"
                                                 )
+                                                # Drop deleted columns before processing
+                                                if deleted_cols:
+                                                    df_sheet = df_sheet.drop(columns=[col for col in deleted_cols if col in df_sheet.columns], errors='ignore')
                                                 process_sheet(sheet_name, df_sheet, output_dir, override_types=override_types)
                                             elif file_ext == '.csv':
                                                 # For CSV, process it
                                                 df = pd.read_csv(input_path, dtype=str, keep_default_na=False, engine="python", on_bad_lines="skip")
+                                                # Drop deleted columns before processing
+                                                if deleted_cols:
+                                                    df = df.drop(columns=[col for col in deleted_cols if col in df.columns], errors='ignore')
                                                 process_sheet(sheet_name, df, output_dir, override_types=override_types)
                                             else:
                                                 st.error("Unsupported file type. Please upload .xlsx, .xls, or .csv files.")
@@ -2375,9 +2481,16 @@ def run_main_app():
                             new_types[col] = current_types.get(col, info['type'])
                         st.session_state['user_selected_types'][selected_sheet] = new_types
                     
-                    # Create schema review table
+                    # Get deleted columns for this sheet
+                    deleted_cols = st.session_state.get('deleted_columns', {}).get(selected_sheet, set())
+                    
+                    # Create schema review table (exclude deleted columns)
                     review_data = []
                     for col_name, col_info in schema_info.items():
+                        # Skip deleted columns
+                        if col_name in deleted_cols:
+                            continue
+                            
                         inferred_type = col_info['type']
                         sample_vals = col_info.get('sample_values', [])
                         null_count = col_info.get('null_count', 0)
@@ -2421,8 +2534,24 @@ def run_main_app():
                         <div class="schema-review-container">
                         """, unsafe_allow_html=True)
                         
+                        # Header row for column labels
+                        header_col1, header_col2, header_col3, header_col4, header_col5 = st.columns([2, 1.5, 1.5, 3, 0.8])
+                        with header_col1:
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Column Name</div>', unsafe_allow_html=True)
+                        with header_col2:
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Inferred Type</div>', unsafe_allow_html=True)
+                        with header_col3:
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Select Type</div>', unsafe_allow_html=True)
+                        with header_col4:
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Sample Values</div>', unsafe_allow_html=True)
+                        with header_col5:
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Delete</div>', unsafe_allow_html=True)
+                        
+                        st.markdown('<hr style="margin: 0.5rem 0 1rem 0; border: none; border-top: 1px solid #e5e7eb;">', unsafe_allow_html=True)
+                        
                         # Store form selections temporarily
                         form_selections = {}
+                        form_deletions = {}
                         
                         # Display table with editable dropdowns
                         for idx, row in review_df.iterrows():
@@ -2433,7 +2562,7 @@ def run_main_app():
                             # Add row styling
                             st.markdown(f'<div class="schema-review-row">', unsafe_allow_html=True)
                             
-                            col1, col2, col3, col4 = st.columns([2, 1.5, 1.5, 3])
+                            col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 3, 0.8])
                             
                             with col1:
                                 st.markdown(f'<div class="schema-column-name">{col_name}</div>', unsafe_allow_html=True)
@@ -2463,6 +2592,15 @@ def run_main_app():
                             with col4:
                                 st.markdown(f'<div class="schema-sample-values">{sample_vals}</div>', unsafe_allow_html=True)
                             
+                            with col5:
+                                delete_col = st.checkbox(
+                                    "Delete",
+                                    key=f"form_delete_{selected_sheet}_{col_name}",
+                                    label_visibility="collapsed",
+                                    help=f"Delete column '{col_name}'"
+                                )
+                                form_deletions[col_name] = delete_col
+                            
                             st.markdown('</div>', unsafe_allow_html=True)
                             
                             if idx < len(review_df) - 1:
@@ -2470,21 +2608,82 @@ def run_main_app():
                         
                         st.markdown("</div>", unsafe_allow_html=True)
                         
+                        # Check if any columns are marked for deletion by reading checkbox values from session state
+                        columns_to_delete = []
+                        for col_name in form_deletions.keys():
+                            checkbox_key = f"form_delete_{selected_sheet}_{col_name}"
+                            if checkbox_key in st.session_state and st.session_state[checkbox_key]:
+                                columns_to_delete.append(col_name)
+                        
+                        # Show warning if columns are marked for deletion
+                        if columns_to_delete:
+                            st.markdown("""
+                            <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 1rem; margin: 1rem 0; border-radius: 4px;">
+                                <strong style="color: #92400e;">⚠️ Warning: Columns Marked for Deletion</strong>
+                                <p style="color: #78350f; margin: 0.5rem 0 0 0;">The following columns will be permanently removed from the processed data:</p>
+                                <ul style="color: #78350f; margin: 0.5rem 0 0 1.5rem;">
+                            """, unsafe_allow_html=True)
+                            for col in columns_to_delete:
+                                st.markdown(f'<li style="color: #78350f;">{col}</li>', unsafe_allow_html=True)
+                            st.markdown("""
+                                </ul>
+                                <p style="color: #78350f; margin: 0.5rem 0 0 0; font-weight: 600;">Please confirm below to proceed with deletion.</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Confirmation checkbox
+                            confirm_key = f"confirm_delete_{selected_sheet}"
+                            confirm_deletion = st.checkbox(
+                                f"I understand that {len(columns_to_delete)} column(s) will be deleted",
+                                key=confirm_key,
+                                value=st.session_state.get(confirm_key, False)
+                            )
+                        else:
+                            confirm_deletion = True  # No deletion, so no confirmation needed
+                        
                         # Submit button to apply all changes at once
                         col1, col2, col3 = st.columns([1, 1, 1])
                         with col2:
+                            # Note: We can't use disabled parameter reliably in forms, so we validate on submit instead
                             apply_changes = st.form_submit_button("Apply Schema Changes", use_container_width=True, type="primary")
                         
                         # Apply all changes when form is submitted
+                        # Check confirmation from session state
+                        confirm_key = f"confirm_delete_{selected_sheet}"
+                        is_confirmed = st.session_state.get(confirm_key, True) if columns_to_delete else True
                         if apply_changes:
-                            # Update session state with all form selections at once
-                            if selected_sheet not in st.session_state['user_selected_types']:
-                                st.session_state['user_selected_types'][selected_sheet] = {}
-                            # Batch update all column types
-                            for col_name, selected_type in form_selections.items():
-                                st.session_state['user_selected_types'][selected_sheet][col_name] = selected_type
-                            st.success("✅ Schema changes applied! You can now process the file.")
-                            st.rerun()
+                            # Double-check confirmation if columns are marked for deletion
+                            if columns_to_delete and not is_confirmed:
+                                st.error("⚠️ Please confirm that you understand the columns will be deleted by checking the confirmation box.")
+                            elif is_confirmed:
+                                # Update session state with all form selections at once
+                                if selected_sheet not in st.session_state['user_selected_types']:
+                                    st.session_state['user_selected_types'][selected_sheet] = {}
+                                # Batch update all column types
+                                for col_name, selected_type in form_selections.items():
+                                    st.session_state['user_selected_types'][selected_sheet][col_name] = selected_type
+                                
+                                # Update deleted columns
+                                if selected_sheet not in st.session_state['deleted_columns']:
+                                    st.session_state['deleted_columns'][selected_sheet] = set()
+                                # Add columns marked for deletion
+                                for col_name, should_delete in form_deletions.items():
+                                    if should_delete:
+                                        st.session_state['deleted_columns'][selected_sheet].add(col_name)
+                                    else:
+                                        # Remove from deleted set if unchecked
+                                        st.session_state['deleted_columns'][selected_sheet].discard(col_name)
+                                
+                                # Remove deleted columns from user_selected_types
+                                deleted_cols = st.session_state['deleted_columns'][selected_sheet]
+                                for deleted_col in deleted_cols:
+                                    st.session_state['user_selected_types'][selected_sheet].pop(deleted_col, None)
+                                
+                                if columns_to_delete:
+                                    st.success(f"✅ Schema changes applied! {len(columns_to_delete)} column(s) deleted. You can now process the file.")
+                                else:
+                                    st.success("✅ Schema changes applied! You can now process the file.")
+                                st.rerun()
                     
                     # Process button for single sheet (outside form, after schema review)
                     st.markdown("---")
@@ -2523,12 +2722,22 @@ def run_main_app():
                                         for sheet_name, df_sheet in sheets.items():
                                             # Get override_types for this specific sheet
                                             override_types = user_selected_types_all.get(sheet_name, {})
+                                            # Get deleted columns for this sheet
+                                            deleted_cols = st.session_state.get('deleted_columns', {}).get(sheet_name, set())
+                                            # Drop deleted columns before processing
+                                            if deleted_cols:
+                                                df_sheet = df_sheet.drop(columns=[col for col in deleted_cols if col in df_sheet.columns], errors='ignore')
                                             process_sheet(sheet_name, df_sheet, output_dir, override_types=override_types)
                                     elif file_ext == '.csv':
                                         # For CSV, use the sheet name (filename without extension)
                                         sheet_name = input_path.stem
                                         df = pd.read_csv(input_path, dtype=str, keep_default_na=False, engine="python", on_bad_lines="skip")
                                         override_types = user_selected_types_all.get(sheet_name, {})
+                                        # Get deleted columns for this sheet
+                                        deleted_cols = st.session_state.get('deleted_columns', {}).get(sheet_name, set())
+                                        # Drop deleted columns before processing
+                                        if deleted_cols:
+                                            df = df.drop(columns=[col for col in deleted_cols if col in df.columns], errors='ignore')
                                         process_sheet(sheet_name, df, output_dir, override_types=override_types)
                                     else:
                                         st.error("Unsupported file type. Please upload .xlsx, .xls, or .csv files.")
