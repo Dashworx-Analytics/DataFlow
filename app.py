@@ -2002,7 +2002,7 @@ def run_main_app():
             keys_to_clear = [
                 'uploaded_file_name', 'schema_review_done', 'inferred_schemas',
                 'raw_dataframes', 'processed', 'output_files', 'user_selected_types',
-                'sheet_names', 'selected_sheet'
+                'sheet_names', 'selected_sheet', 'user_selected_date_formats'
             ]
             for key in keys_to_clear:
                 if key in st.session_state:
@@ -2118,7 +2118,25 @@ def run_main_app():
             if 'user_selected_types' not in st.session_state:
                 st.session_state['user_selected_types'] = {}
             
+            # Initialize user-selected date formats structure if not exists
+            if 'user_selected_date_formats' not in st.session_state:
+                st.session_state['user_selected_date_formats'] = {}
+            
             type_options = ["STRING", "INT64", "FLOAT64", "BOOL", "DATE", "TIMESTAMP"]
+            
+            # Date format options (short list)
+            date_format_options = {
+                "DATE": [
+                    ("%Y-%m-%d", "1969-07-20"),
+                    ("%m/%d/%Y", "07/20/1969"),
+                    ("%d/%m/%Y", "20/07/1969")
+                ],
+                "TIMESTAMP": [
+                    ("%Y-%m-%d %H:%M:%S", "1969-07-20 12:00:00"),
+                    ("%m/%d/%Y %H:%M:%S", "07/20/1969 12:00:00"),
+                    ("%d/%m/%Y %H:%M:%S", "20/07/1969 12:00:00")
+                ]
+            }
             
             # Use tabs for multiple sheets, single view for one sheet
             if len(sheet_names) > 1:
@@ -2198,8 +2216,24 @@ def run_main_app():
                                 <div class="schema-review-container">
                                 """, unsafe_allow_html=True)
                                 
+                                # Header row for column labels
+                                header_col1, header_col2, header_col3, header_col4, header_col5 = st.columns([2, 1.5, 1.5, 2, 3])
+                                with header_col1:
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Column Name</div>', unsafe_allow_html=True)
+                                with header_col2:
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Inferred Type</div>', unsafe_allow_html=True)
+                                with header_col3:
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Select Type</div>', unsafe_allow_html=True)
+                                with header_col4:
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Date Format</div>', unsafe_allow_html=True)
+                                with header_col5:
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Sample Values</div>', unsafe_allow_html=True)
+                                
+                                st.markdown('<hr style="margin: 0.5rem 0 1rem 0; border: none; border-top: 1px solid #e5e7eb;">', unsafe_allow_html=True)
+                                
                                 # Store form selections temporarily
                                 form_selections = {}
+                                form_date_formats = {}
                                 
                                 # Display table with editable dropdowns
                                 for idx, row in review_df.iterrows():
@@ -2210,7 +2244,7 @@ def run_main_app():
                                     # Add row styling
                                     st.markdown(f'<div class="schema-review-row">', unsafe_allow_html=True)
                                     
-                                    col1, col2, col3, col4 = st.columns([2, 1.5, 1.5, 3])
+                                    col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 2, 3])
                                     
                                     with col1:
                                         st.markdown(f'<div class="schema-column-name">{col_name}</div>', unsafe_allow_html=True)
@@ -2238,6 +2272,45 @@ def run_main_app():
                                         form_selections[col_name] = selected_type
                                     
                                     with col4:
+                                        # Show date format dropdown only for DATE or TIMESTAMP types
+                                        if selected_type in ["DATE", "TIMESTAMP"]:
+                                            # Get current date format for this column
+                                            sheet_date_formats = st.session_state['user_selected_date_formats'].get(sheet_name, {})
+                                            current_format = sheet_date_formats.get(col_name)
+                                            
+                                            # Get format options for this type
+                                            format_options = date_format_options[selected_type]
+                                            format_strings = [fmt[0] for fmt in format_options]
+                                            format_labels = [fmt[1] for fmt in format_options]
+                                            
+                                            # Find default index
+                                            default_format_index = 0
+                                            if current_format and current_format in format_strings:
+                                                default_format_index = format_strings.index(current_format)
+                                            elif selected_type == "DATE":
+                                                # Default to %d/%m/%Y for DATE (20/07/1969)
+                                                if "%d/%m/%Y" in format_strings:
+                                                    default_format_index = format_strings.index("%d/%m/%Y")
+                                            elif selected_type == "TIMESTAMP":
+                                                # Default to %d/%m/%Y %H:%M:%S for TIMESTAMP (20/07/1969 12:00:00)
+                                                if "%d/%m/%Y %H:%M:%S" in format_strings:
+                                                    default_format_index = format_strings.index("%d/%m/%Y %H:%M:%S")
+                                            
+                                            selected_format = st.selectbox(
+                                                f"Format for {col_name}",
+                                                format_labels,
+                                                index=default_format_index,
+                                                key=f"form_date_format_{sheet_name}_{col_name}",
+                                                label_visibility="collapsed"
+                                            )
+                                            # Get format string from selected label
+                                            selected_index = format_labels.index(selected_format)
+                                            form_date_formats[col_name] = format_strings[selected_index]
+                                        else:
+                                            # Show empty space for non-date columns
+                                            st.markdown('<div style="height: 38px;"></div>', unsafe_allow_html=True)
+                                    
+                                    with col5:
                                         st.markdown(f'<div class="schema-sample-values">{sample_vals}</div>', unsafe_allow_html=True)
                                     
                                     st.markdown('</div>', unsafe_allow_html=True)
@@ -2260,6 +2333,18 @@ def run_main_app():
                                     # Batch update all column types
                                     for col_name, selected_type in form_selections.items():
                                         st.session_state['user_selected_types'][sheet_name][col_name] = selected_type
+                                    
+                                    # Update date formats
+                                    if sheet_name not in st.session_state['user_selected_date_formats']:
+                                        st.session_state['user_selected_date_formats'][sheet_name] = {}
+                                    # Batch update all date formats (only for DATE/TIMESTAMP columns)
+                                    for col_name, selected_type in form_selections.items():
+                                        if selected_type in ["DATE", "TIMESTAMP"] and col_name in form_date_formats:
+                                            st.session_state['user_selected_date_formats'][sheet_name][col_name] = form_date_formats[col_name]
+                                        elif col_name in st.session_state['user_selected_date_formats'].get(sheet_name, {}):
+                                            # Remove date format if column type changed away from DATE/TIMESTAMP
+                                            del st.session_state['user_selected_date_formats'][sheet_name][col_name]
+                                    
                                     st.success("✅ Schema changes applied! You can now process the file.")
                                     st.rerun()
                             
@@ -2293,6 +2378,9 @@ def run_main_app():
                                             user_selected_types_all = st.session_state.get('user_selected_types', {})
                                             override_types = user_selected_types_all.get(sheet_name, {})
                                             
+                                            # Get override date formats for this sheet
+                                            override_date_formats = st.session_state.get('user_selected_date_formats', {}).get(sheet_name, None)
+                                            
                                             # Process only this specific sheet
                                             if file_ext in {'.xlsx', '.xlsm', '.xls'}:
                                                 # Read only the specific sheet
@@ -2303,11 +2391,11 @@ def run_main_app():
                                                     keep_default_na=False,
                                                     engine="openpyxl"
                                                 )
-                                                process_sheet(sheet_name, df_sheet, output_dir, override_types=override_types)
+                                                process_sheet(sheet_name, df_sheet, output_dir, override_types=override_types, override_date_formats=override_date_formats)
                                             elif file_ext == '.csv':
                                                 # For CSV, process it
                                                 df = pd.read_csv(input_path, dtype=str, keep_default_na=False, engine="python", on_bad_lines="skip")
-                                                process_sheet(sheet_name, df, output_dir, override_types=override_types)
+                                                process_sheet(sheet_name, df, output_dir, override_types=override_types, override_date_formats=override_date_formats)
                                             else:
                                                 st.error("Unsupported file type. Please upload .xlsx, .xls, or .csv files.")
                                                 return
@@ -2421,8 +2509,24 @@ def run_main_app():
                         <div class="schema-review-container">
                         """, unsafe_allow_html=True)
                         
+                        # Header row for column labels
+                        header_col1, header_col2, header_col3, header_col4, header_col5 = st.columns([2, 1.5, 1.5, 2, 3])
+                        with header_col1:
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Column Name</div>', unsafe_allow_html=True)
+                        with header_col2:
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Inferred Type</div>', unsafe_allow_html=True)
+                        with header_col3:
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Select Type</div>', unsafe_allow_html=True)
+                        with header_col4:
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Date Format</div>', unsafe_allow_html=True)
+                        with header_col5:
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Sample Values</div>', unsafe_allow_html=True)
+                        
+                        st.markdown('<hr style="margin: 0.5rem 0 1rem 0; border: none; border-top: 1px solid #e5e7eb;">', unsafe_allow_html=True)
+                        
                         # Store form selections temporarily
                         form_selections = {}
+                        form_date_formats = {}
                         
                         # Display table with editable dropdowns
                         for idx, row in review_df.iterrows():
@@ -2433,7 +2537,7 @@ def run_main_app():
                             # Add row styling
                             st.markdown(f'<div class="schema-review-row">', unsafe_allow_html=True)
                             
-                            col1, col2, col3, col4 = st.columns([2, 1.5, 1.5, 3])
+                            col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 2, 3])
                             
                             with col1:
                                 st.markdown(f'<div class="schema-column-name">{col_name}</div>', unsafe_allow_html=True)
@@ -2461,6 +2565,45 @@ def run_main_app():
                                 form_selections[col_name] = selected_type
                             
                             with col4:
+                                # Show date format dropdown only for DATE or TIMESTAMP types
+                                if selected_type in ["DATE", "TIMESTAMP"]:
+                                    # Get current date format for this column
+                                    sheet_date_formats = st.session_state['user_selected_date_formats'].get(selected_sheet, {})
+                                    current_format = sheet_date_formats.get(col_name)
+                                    
+                                    # Get format options for this type
+                                    format_options = date_format_options[selected_type]
+                                    format_strings = [fmt[0] for fmt in format_options]
+                                    format_labels = [fmt[1] for fmt in format_options]
+                                    
+                                    # Find default index
+                                    default_format_index = 0
+                                    if current_format and current_format in format_strings:
+                                        default_format_index = format_strings.index(current_format)
+                                    elif selected_type == "DATE":
+                                        # Default to %d/%m/%Y for DATE (20/07/1969)
+                                        if "%d/%m/%Y" in format_strings:
+                                            default_format_index = format_strings.index("%d/%m/%Y")
+                                    elif selected_type == "TIMESTAMP":
+                                        # Default to %d/%m/%Y %H:%M:%S for TIMESTAMP (20/07/1969 12:00:00)
+                                        if "%d/%m/%Y %H:%M:%S" in format_strings:
+                                            default_format_index = format_strings.index("%d/%m/%Y %H:%M:%S")
+                                    
+                                    selected_format = st.selectbox(
+                                        f"Format for {col_name}",
+                                        format_labels,
+                                        index=default_format_index,
+                                        key=f"form_date_format_{selected_sheet}_{col_name}",
+                                        label_visibility="collapsed"
+                                    )
+                                    # Get format string from selected label
+                                    selected_index = format_labels.index(selected_format)
+                                    form_date_formats[col_name] = format_strings[selected_index]
+                                else:
+                                    # Show empty space for non-date columns
+                                    st.markdown('<div style="height: 38px;"></div>', unsafe_allow_html=True)
+                            
+                            with col5:
                                 st.markdown(f'<div class="schema-sample-values">{sample_vals}</div>', unsafe_allow_html=True)
                             
                             st.markdown('</div>', unsafe_allow_html=True)
@@ -2483,6 +2626,18 @@ def run_main_app():
                             # Batch update all column types
                             for col_name, selected_type in form_selections.items():
                                 st.session_state['user_selected_types'][selected_sheet][col_name] = selected_type
+                            
+                            # Update date formats
+                            if selected_sheet not in st.session_state['user_selected_date_formats']:
+                                st.session_state['user_selected_date_formats'][selected_sheet] = {}
+                            # Batch update all date formats (only for DATE/TIMESTAMP columns)
+                            for col_name, selected_type in form_selections.items():
+                                if selected_type in ["DATE", "TIMESTAMP"] and col_name in form_date_formats:
+                                    st.session_state['user_selected_date_formats'][selected_sheet][col_name] = form_date_formats[col_name]
+                                elif col_name in st.session_state['user_selected_date_formats'].get(selected_sheet, {}):
+                                    # Remove date format if column type changed away from DATE/TIMESTAMP
+                                    del st.session_state['user_selected_date_formats'][selected_sheet][col_name]
+                            
                             st.success("✅ Schema changes applied! You can now process the file.")
                             st.rerun()
                     
@@ -2523,13 +2678,17 @@ def run_main_app():
                                         for sheet_name, df_sheet in sheets.items():
                                             # Get override_types for this specific sheet
                                             override_types = user_selected_types_all.get(sheet_name, {})
-                                            process_sheet(sheet_name, df_sheet, output_dir, override_types=override_types)
+                                            # Get override date formats for this sheet
+                                            override_date_formats = st.session_state.get('user_selected_date_formats', {}).get(sheet_name, None)
+                                            process_sheet(sheet_name, df_sheet, output_dir, override_types=override_types, override_date_formats=override_date_formats)
                                     elif file_ext == '.csv':
                                         # For CSV, use the sheet name (filename without extension)
                                         sheet_name = input_path.stem
                                         df = pd.read_csv(input_path, dtype=str, keep_default_na=False, engine="python", on_bad_lines="skip")
                                         override_types = user_selected_types_all.get(sheet_name, {})
-                                        process_sheet(sheet_name, df, output_dir, override_types=override_types)
+                                        # Get override date formats for this sheet
+                                        override_date_formats = st.session_state.get('user_selected_date_formats', {}).get(sheet_name, None)
+                                        process_sheet(sheet_name, df, output_dir, override_types=override_types, override_date_formats=override_date_formats)
                                     else:
                                         st.error("Unsupported file type. Please upload .xlsx, .xls, or .csv files.")
                                         return

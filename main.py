@@ -333,10 +333,15 @@ def infer_column(s: pd.Series, name: str):
     # default STRING
     return s.astype(str).str.strip(), "STRING", None
 
-def coerce_column_to_type(s: pd.Series, target_type: str):
+def coerce_column_to_type(s: pd.Series, target_type: str, date_format: str | None = None):
     """
     Coerce a column to a given BigQuery type using existing helpers.
     Used when the user edits the schema and we want to enforce it.
+    
+    Args:
+        s: Series to coerce
+        target_type: Target BigQuery type
+        date_format: Optional date format string (e.g., "%Y-%m-%d", "%m/%d/%Y") for DATE/TIMESTAMP types
     """
     s = s.apply(strip_cell)
 
@@ -355,6 +360,20 @@ def coerce_column_to_type(s: pd.Series, target_type: str):
         return num.astype(float), "FLOAT64", None
 
     if t in {"DATE", "TIMESTAMP"}:
+        # If user provided a date format, try to parse with it first
+        if date_format:
+            try:
+                # Try parsing with the specified format
+                parsed = pd.to_datetime(s, format=date_format, errors='coerce')
+                if parsed.notna().mean() >= THRESH_DATE:
+                    # Successfully parsed enough values with this format
+                    fmt = date_format
+                    return parsed, t, fmt
+            except (ValueError, TypeError):
+                # Format parsing failed, fall back to auto-detection
+                pass
+        
+        # Auto-detect date format if user format didn't work or wasn't provided
         ss = sample_series(s, MAX_ROWS_SAMPLE)
         excel_dt, excel_ratio = try_parse_excel_serial(ss)
         pat_dt, pat_ratio = try_parse_date_patterns(ss)
@@ -377,7 +396,8 @@ def coerce_column_to_type(s: pd.Series, target_type: str):
         else:
             full_dt, _ = try_parse_date_direction(s, dayfirst=not DAYFIRST_HINT)
 
-        fmt = "%Y-%m-%d" if t == "DATE" else "%Y-%m-%d %H:%M:%S"
+        # Use user-provided format if available, otherwise use default (%d/%m/%Y format)
+        fmt = date_format if date_format else ("%d/%m/%Y" if t == "DATE" else "%d/%m/%Y %H:%M:%S")
         return full_dt, t, fmt
 
     # fallback
@@ -424,12 +444,15 @@ def bq_schema_from_df(df: pd.DataFrame, date_fmt_map: dict) -> list:
     return schema
 
 def format_dates_for_csv(df: pd.DataFrame, date_fmt_map: dict) -> pd.DataFrame:
+    """
+    Format date columns according to the specified format in date_fmt_map.
+    Uses the user-selected format directly without BigQuery compliance restrictions.
+    """
     out = df.copy()
     for col, fmt in date_fmt_map.items():
-        if fmt == "%Y-%m-%d":
-            out[col] = out[col].dt.strftime("%Y-%m-%d")
-        elif fmt == "%Y-%m-%d %H:%M:%S":
-            out[col] = out[col].dt.strftime("%Y-%m-%d %H:%M:%S")
+        if col in out.columns and pd.api.types.is_datetime64_any_dtype(out[col]):
+            # Format dates using the specified format from date_fmt_map
+            out[col] = out[col].dt.strftime(fmt)
     return out
 
 def reorder_for_bq_autodetect(df: pd.DataFrame, bq_type_map: dict) -> pd.DataFrame:
@@ -479,7 +502,7 @@ def write_bq_text_schema(bq_type_map: dict, path: Path):
         for col, typ in bq_type_map.items():
             f.write(f"{col}:{_map_bq_type_for_schema(typ)},NULLABLE\n")
 
-def process_sheet(sheet_name: str, df_raw: pd.DataFrame, out_dir: Path, override_types: dict | None = None):
+def process_sheet(sheet_name: str, df_raw: pd.DataFrame, out_dir: Path, override_types: dict | None = None, override_date_formats: dict | None = None):
     # Header cleanup
     df_raw.columns = [simple_header(c) for c in df_raw.columns]
 
@@ -493,7 +516,11 @@ def process_sheet(sheet_name: str, df_raw: pd.DataFrame, out_dir: Path, override
 
     for col in df_raw.columns:
         if override_types is not None and col in override_types:
-            ser, bq_type, date_fmt = coerce_column_to_type(df_raw[col], override_types[col])
+            # Get user-specified date format for this column if available
+            user_date_format = None
+            if override_date_formats and col in override_date_formats:
+                user_date_format = override_date_formats[col]
+            ser, bq_type, date_fmt = coerce_column_to_type(df_raw[col], override_types[col], date_format=user_date_format)
         else:
             ser, bq_type, date_fmt = infer_column(df_raw[col], col)
 
@@ -502,7 +529,7 @@ def process_sheet(sheet_name: str, df_raw: pd.DataFrame, out_dir: Path, override
         if date_fmt:
             date_fmt_map[col] = date_fmt
         elif bq_type == "TIMESTAMP":
-            date_fmt_map[col] = "%Y-%m-%d %H:%M:%S"
+            date_fmt_map[col] = "%d/%m/%Y %H:%M:%S"
 
     df_clean = pd.DataFrame(typed)
     df_to_write = format_dates_for_csv(df_clean, date_fmt_map)
