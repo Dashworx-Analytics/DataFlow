@@ -540,32 +540,6 @@ st.markdown("""
             outline-offset: 2px !important;
         }
         
-        /* Protect navigation buttons from being hidden */
-        button[data-testid*="nav_to_schema"],
-        button[data-testid*="nav_to_docs"] {
-            display: flex !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            pointer-events: auto !important;
-            position: relative !important;
-        }
-        
-        /* Ensure navigation buttons are always visible on hover */
-        button:hover[data-testid*="nav_to_schema"],
-        button:hover[data-testid*="nav_to_docs"] {
-            display: flex !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            pointer-events: auto !important;
-        }
-        
-        /* Additional protection for navigation button containers */
-        .stButton:has(button[data-testid*="nav_to_schema"]),
-        .stButton:has(button[data-testid*="nav_to_docs"]) {
-            display: block !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-        }
         
         /* Protect download buttons from being hidden */
         .stDownloadButton > button,
@@ -1102,17 +1076,9 @@ def render_shared_logo_script():
                                      btn.closest('[data-testid="stImage"]');
                 
                 if (isImageButton) {
-                    // Don't hide navigation buttons
-                    const btnText = (btn.textContent || '').trim();
-                    const btnKey = btn.getAttribute('data-testid') || '';
-                    if (btnText !== 'Schema Guide' && 
-                        btnText !== 'BigQuery Guide' && 
-                        btnKey !== 'nav_to_schema_docs' && 
-                        btnKey !== 'nav_to_docs') {
-                        btn.style.display = 'none';
-                        btn.style.visibility = 'hidden';
-                        btn.style.opacity = '0';
-                    }
+                    btn.style.display = 'none';
+                    btn.style.visibility = 'hidden';
+                    btn.style.opacity = '0';
                     btn.style.pointerEvents = 'none';
                     btn.style.width = '0';
                     btn.style.height = '0';
@@ -1130,17 +1096,9 @@ def render_shared_logo_script():
             logoImages.forEach(function(imgContainer) {
                 const buttons = imgContainer.querySelectorAll('button');
                 buttons.forEach(function(btn) {
-                    // Don't hide navigation buttons
-                    const btnText = (btn.textContent || '').trim();
-                    const btnKey = btn.getAttribute('data-testid') || '';
-                    if (btnText !== 'Schema Guide' && 
-                        btnText !== 'BigQuery Guide' && 
-                        btnKey !== 'nav_to_schema_docs' && 
-                        btnKey !== 'nav_to_docs') {
-                        btn.style.display = 'none';
-                        btn.style.visibility = 'hidden';
-                        btn.style.opacity = '0';
-                    }
+                    btn.style.display = 'none';
+                    btn.style.visibility = 'hidden';
+                    btn.style.opacity = '0';
                     btn.style.pointerEvents = 'none';
                     btn.style.width = '0';
                     btn.style.height = '0';
@@ -1424,81 +1382,6 @@ def render_shared_logo_script():
         childList: true,
         subtree: true
     });
-    
-    // Prevent any interference with navigation buttons
-    function protectNavigationButtons() {
-        // Find buttons by their data-testid keys
-        const navButtons = document.querySelectorAll('button[data-testid*="nav_to_schema"], button[data-testid*="nav_to_docs"]');
-        navButtons.forEach(function(button) {
-            // Force button to always be visible and clickable
-            button.style.setProperty('display', 'flex', 'important');
-            button.style.setProperty('visibility', 'visible', 'important');
-            button.style.setProperty('opacity', '1', 'important');
-            button.style.setProperty('pointer-events', 'auto', 'important');
-            button.style.setProperty('position', 'relative', 'important');
-            
-            // Also protect the parent container
-            const parent = button.closest('.stButton');
-            if (parent) {
-                parent.style.setProperty('display', 'block', 'important');
-                parent.style.setProperty('visibility', 'visible', 'important');
-                parent.style.setProperty('opacity', '1', 'important');
-            }
-            
-            // Prevent any hover effects that might hide it
-            button.onmouseenter = function() {
-                this.style.setProperty('display', 'flex', 'important');
-                this.style.setProperty('visibility', 'visible', 'important');
-                this.style.setProperty('opacity', '1', 'important');
-            };
-            button.onmouseleave = function() {
-                this.style.setProperty('display', 'flex', 'important');
-                this.style.setProperty('visibility', 'visible', 'important');
-                this.style.setProperty('opacity', '1', 'important');
-            };
-            
-            // Mark as protected
-            if (!button.dataset.protected) {
-                button.dataset.protected = 'true';
-            }
-        });
-        
-        // Also check by text content as fallback
-        const allButtons = document.querySelectorAll('.stButton > button');
-        allButtons.forEach(function(button) {
-            const buttonText = (button.textContent || '').trim();
-            if (buttonText === 'Schema Guide' || buttonText === 'BigQuery Guide') {
-                button.style.setProperty('display', 'flex', 'important');
-                button.style.setProperty('visibility', 'visible', 'important');
-                button.style.setProperty('opacity', '1', 'important');
-                button.style.setProperty('pointer-events', 'auto', 'important');
-                
-                const parent = button.closest('.stButton');
-                if (parent) {
-                    parent.style.setProperty('display', 'block', 'important');
-                    parent.style.setProperty('visibility', 'visible', 'important');
-                    parent.style.setProperty('opacity', '1', 'important');
-                }
-            }
-        });
-    }
-    
-    protectNavigationButtons();
-    setTimeout(protectNavigationButtons, 50);
-    setTimeout(protectNavigationButtons, 100);
-    setTimeout(protectNavigationButtons, 200);
-    setTimeout(protectNavigationButtons, 500);
-    
-    const buttonProtectionObserver = new MutationObserver(function(mutations) {
-        protectNavigationButtons();
-    });
-    buttonProtectionObserver.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['style', 'class']
-    });
-    
     // Protect download buttons from being hidden
     function protectDownloadButtons() {
         const downloadButtons = document.querySelectorAll('.stDownloadButton > button, button[data-testid*="download"]');
@@ -1552,18 +1435,14 @@ def render_shared_logo_script():
     document.addEventListener('click', function(e) {
         const button = e.target.closest('button');
         if (button) {
-            // Skip navigation buttons and download buttons to avoid interfering
+            // Skip download buttons to avoid interfering
             const buttonText = (button.textContent || '').trim();
             const buttonKey = button.getAttribute('data-testid') || '';
             const isDownloadButton = button.closest('.stDownloadButton') || buttonKey.includes('download');
             
-            if (buttonText.includes('Schema Guide') || 
-                buttonText.includes('BigQuery Guide') || 
-                buttonText.includes('Back to Main') ||
-                buttonText.includes('View BigQuery Guide') ||
-                buttonKey.includes('nav_') ||
+            if (buttonText.includes('Back to Main') ||
                 isDownloadButton) {
-                return; // Don't add animation to navigation or download buttons
+                return; // Don't add animation to download buttons
             }
             
             if (e.target.closest('.stButton > button')) {
@@ -1624,9 +1503,9 @@ def render_shared_footer():
     st.markdown("---")
     st.markdown("""
     <div class="footer">
-        <p style="font-size: 1rem; margin-bottom: 0.25rem;"><strong>BigQuery Data Processor</strong></p>
+        <p style="font-size: 1rem; margin-bottom: 0.25rem;"><strong>Data Processor</strong></p>
         <p style="font-size: 0.75rem; color: #9ca3af; margin-bottom: 0.5rem;">Powered by dashworx</p>
-        <p style="font-size: 0.9rem; color: #888; margin-bottom: 0.75rem;">Transform your data into BigQuery-ready format | Built with Streamlit</p>
+        <p style="font-size: 0.9rem; color: #888; margin-bottom: 0.75rem;">Transform your data into ready-to-use format | Built with Streamlit</p>
         <p style="font-size: 0.85rem; color: #6b7280; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e5e7eb;">
             <strong>🔒 Privacy & Security:</strong> Your data is processed locally and never stored on our servers. All files are processed in temporary memory and automatically deleted after your session ends.
         </p>
@@ -1651,7 +1530,7 @@ def render_maintenance_page():
     render_shared_layout()
     
     # Maintenance content
-    st.markdown('<h1 class="main-header">BigQuery Data Processor</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">Data Processor</h1>', unsafe_allow_html=True)
     
     # Maintenance message container with image
     col1, col2, col3 = st.columns([1, 1, 1])
@@ -1902,7 +1781,7 @@ def display_processing_results(temp_dir):
                 with open(schema_json_file, 'r', encoding='utf-8') as f:
                     schema = json.load(f)
                 
-                st.markdown('<h3>🗂️ BigQuery Schema (JSON)</h3>', unsafe_allow_html=True)
+                st.markdown('<h3>🗂️ Schema (JSON)</h3>', unsafe_allow_html=True)
                 st.json(schema)
             
             if summary_file.exists():
@@ -1937,51 +1816,8 @@ def run_main_app():
     render_shared_layout()
     
     # Header
-    st.markdown('<h1 class="main-header">BigQuery Data Processor</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Transform your Excel and CSV files into BigQuery-ready format with intelligent data processing</p>', unsafe_allow_html=True)
-    
-    # Navigation buttons - Centered
-    col1, col2, col3, col4 = st.columns([1, 2, 2, 1])
-    with col2:
-        if st.button("Schema Guide", use_container_width=True, key="nav_to_schema_docs"):
-            try:
-                st.switch_page("pages/Schema_Documentation.py")
-            except Exception as e:
-                st.error(f"Navigation error: {str(e)}")
-    with col3:
-        if st.button("BigQuery Guide", use_container_width=True, key="nav_to_docs"):
-            try:
-                st.switch_page("pages/Documentation.py")
-            except Exception as e:
-                st.error(f"Navigation error: {str(e)}")
-    
-    # Features section
-    st.markdown("""
-    <div class="info-text">
-        <h3>✨ Key Features</h3>
-        <ul>
-            <li><strong>Smart Data Type Inference</strong> - Automatically detects STRING, INT64, FLOAT64, BOOL, DATE, and TIMESTAMP types</li>
-            <li><strong>Schema Review & Editing</strong> - Review and edit inferred data types before processing with an intuitive interface</li>
-            <li><strong>Automatic Column Sanitization</strong> - Converts column names to BigQuery-compatible format</li>
-            <li><strong>Data Cleaning & Normalization</strong> - Handles missing values, formats dates, and cleans data</li>
-            <li><strong>BigQuery Schema Generation</strong> - Generates ready-to-use JSON format schema files</li>
-            <li><strong>Clean CSV Output</strong> - Produces properly formatted CSV files optimized for BigQuery</li>
-        </ul>
-        <p style="margin-top: 1.25rem; margin-bottom: 0; padding-top: 1.25rem; border-top: 1px solid #e5e7eb;"><strong>💡 Smart Logic:</strong> Columns containing any letters (A-Z) are automatically detected as STRING type. After uploading your file, review the inferred schema, make any adjustments needed, then click "Process with this schema" to generate your BigQuery-ready files!</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Important notice section
-    st.markdown("""
-    <div class="important-notice">
-        <h3>⚠️ Important Information</h3>
-        <ul>
-            <li><strong>Single User Access:</strong> Only one user can access the app at a time</li>
-            <li><strong>One File at a Time:</strong> One file can be uploaded at a time. Multiple files cannot be uploaded</li>
-            <li><strong>Schema Review:</strong> Choose the data schema correctly before processing the file</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">Data Processor</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Transform your Excel and CSV files into ready-to-use format with intelligent data processing</p>', unsafe_allow_html=True)
     
     # File upload section
     st.markdown("---")
@@ -2739,7 +2575,7 @@ def run_main_app():
                 st.markdown("""
                 <div class="success-box">
                     <strong>✅ Processing Completed Successfully!</strong><br>
-                    Your data has been processed and is now BigQuery-ready.
+                    Your data has been processed and is now ready to use.
                 </div>
                 """, unsafe_allow_html=True)
                 
