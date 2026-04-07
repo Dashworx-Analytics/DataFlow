@@ -506,8 +506,8 @@ def process_sheet(sheet_name: str, df_raw: pd.DataFrame, out_dir: Path, override
     # Header cleanup
     df_raw.columns = [simple_header(c) for c in df_raw.columns]
 
-    # Cell cleanup
-    df_raw = df_raw.applymap(strip_cell)
+    # Cell cleanup (pandas compatibility: newer versions use DataFrame.map)
+    df_raw = df_raw.map(strip_cell) if hasattr(df_raw, "map") else df_raw.applymap(strip_cell)
 
     # Inference or coercion
     typed = {}

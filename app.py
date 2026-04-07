@@ -16,6 +16,22 @@ from main import (
     infer_column, simple_header, strip_cell
 )
 
+
+def _apply_column_renames(df_sheet, sheet_name, override_types, override_date_formats):
+    """Apply user column renames to dataframe and remap override_types/override_date_formats to new names."""
+    renames = st.session_state.get('user_column_renames', {}).get(sheet_name, {})
+    rename_map = {k: str(v).strip() for k, v in renames.items() if v and str(v).strip() and str(v).strip() != k}
+    if not rename_map:
+        return df_sheet, override_types, override_date_formats
+    orig_columns = list(df_sheet.columns)
+    df_renamed = df_sheet.rename(columns=rename_map)
+    override_types_renamed = {rename_map.get(c, c): override_types[c] for c in orig_columns if c in override_types}
+    override_date_formats_renamed = None
+    if override_date_formats:
+        override_date_formats_renamed = {rename_map.get(c, c): override_date_formats[c] for c in orig_columns if c in override_date_formats}
+    return df_renamed, override_types_renamed, override_date_formats_renamed or None
+
+
 # ============================================================================
 # PAGE CONFIGURATION (Must be first Streamlit command)
 # ============================================================================
@@ -1631,8 +1647,8 @@ def perform_initial_inference(df_raw: pd.DataFrame):
     # Clean headers
     df_raw.columns = [simple_header(c) for c in df_raw.columns]
     
-    # Clean cells
-    df_raw = df_raw.applymap(strip_cell)
+    # Clean cells (pandas compatibility: newer versions use DataFrame.map)
+    df_raw = df_raw.map(strip_cell) if hasattr(df_raw, "map") else df_raw.applymap(strip_cell)
     
     schema_info = {}
     
@@ -1838,7 +1854,8 @@ def run_main_app():
             keys_to_clear = [
                 'uploaded_file_name', 'schema_review_done', 'inferred_schemas',
                 'raw_dataframes', 'processed', 'output_files', 'user_selected_types',
-                'sheet_names', 'selected_sheet', 'user_selected_date_formats'
+                'sheet_names', 'selected_sheet', 'user_selected_date_formats',
+                'user_column_renames'
             ]
             for key in keys_to_clear:
                 if key in st.session_state:
@@ -1870,6 +1887,7 @@ def run_main_app():
             st.session_state['processed'] = False
             st.session_state['output_files'] = {}
             st.session_state['user_selected_types'] = {}
+            st.session_state['user_column_renames'] = {}
             st.session_state['sheet_names'] = []
             st.session_state['selected_sheet'] = None
             st.session_state['uploaded_file_name'] = uploaded_file.name
@@ -2005,6 +2023,17 @@ def run_main_app():
                                     # Use existing selection if column exists, otherwise use inferred type
                                     new_types[col] = current_types.get(col, info['type'])
                                 st.session_state['user_selected_types'][sheet_name] = new_types
+                            # Init or sync user_column_renames for this sheet
+                            if 'user_column_renames' not in st.session_state:
+                                st.session_state['user_column_renames'] = {}
+                            if sheet_name not in st.session_state['user_column_renames']:
+                                st.session_state['user_column_renames'][sheet_name] = {col: col for col in schema_info}
+                            else:
+                                current_renames = st.session_state['user_column_renames'][sheet_name]
+                                for col in schema_info:
+                                    if col not in current_renames:
+                                        current_renames[col] = col
+                                st.session_state['user_column_renames'][sheet_name] = {c: current_renames.get(c, c) for c in schema_info}
                             
                             # Create schema review table for this sheet
                             review_data = []
@@ -2053,16 +2082,18 @@ def run_main_app():
                                 """, unsafe_allow_html=True)
                                 
                                 # Header row for column labels
-                                header_col1, header_col2, header_col3, header_col4, header_col5 = st.columns([2, 1.5, 1.5, 2, 3])
+                                header_col1, header_col2, header_col3, header_col4, header_col5, header_col6 = st.columns([1.5, 2, 1.5, 1.5, 2, 3])
                                 with header_col1:
                                     st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Column Name</div>', unsafe_allow_html=True)
                                 with header_col2:
-                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Inferred Type</div>', unsafe_allow_html=True)
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">New Field Name</div>', unsafe_allow_html=True)
                                 with header_col3:
-                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Select Type</div>', unsafe_allow_html=True)
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Inferred Type</div>', unsafe_allow_html=True)
                                 with header_col4:
-                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Date Format</div>', unsafe_allow_html=True)
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Select Type</div>', unsafe_allow_html=True)
                                 with header_col5:
+                                    st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Date Format</div>', unsafe_allow_html=True)
+                                with header_col6:
                                     st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Sample Values</div>', unsafe_allow_html=True)
                                 
                                 st.markdown('<hr style="margin: 0.5rem 0 1rem 0; border: none; border-top: 1px solid #e5e7eb;">', unsafe_allow_html=True)
@@ -2070,6 +2101,7 @@ def run_main_app():
                                 # Store form selections temporarily
                                 form_selections = {}
                                 form_date_formats = {}
+                                form_renames = {}
                                 
                                 # Display table with editable dropdowns
                                 for idx, row in review_df.iterrows():
@@ -2080,15 +2112,27 @@ def run_main_app():
                                     # Add row styling
                                     st.markdown(f'<div class="schema-review-row">', unsafe_allow_html=True)
                                     
-                                    col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 2, 3])
+                                    col1, col2, col3, col4, col5, col6 = st.columns([1.5, 2, 1.5, 1.5, 2, 3])
                                     
                                     with col1:
                                         st.markdown(f'<div class="schema-column-name">{col_name}</div>', unsafe_allow_html=True)
                                     
                                     with col2:
-                                        st.markdown(f'<span class="schema-inferred-type">{inferred_type}</span>', unsafe_allow_html=True)
+                                        sheet_renames = st.session_state.get('user_column_renames', {}).get(sheet_name, {})
+                                        current_name = sheet_renames.get(col_name, col_name)
+                                        new_field_name = st.text_input(
+                                            f"New name for {col_name}",
+                                            value=current_name,
+                                            key=f"form_rename_{sheet_name}_{col_name}",
+                                            label_visibility="collapsed",
+                                            placeholder=col_name
+                                        )
+                                        form_renames[col_name] = (new_field_name or col_name).strip() or col_name
                                     
                                     with col3:
+                                        st.markdown(f'<span class="schema-inferred-type">{inferred_type}</span>', unsafe_allow_html=True)
+                                    
+                                    with col4:
                                         sheet_types = st.session_state['user_selected_types'].get(sheet_name, {})
                                         current_type = sheet_types.get(col_name, inferred_type)
                                         try:
@@ -2107,7 +2151,7 @@ def run_main_app():
                                         # Store selection temporarily (won't update session state until form submit)
                                         form_selections[col_name] = selected_type
                                     
-                                    with col4:
+                                    with col5:
                                         # Show date format dropdown only for DATE or TIMESTAMP types
                                         if selected_type in ["DATE", "TIMESTAMP"]:
                                             # Get current date format for this column
@@ -2146,7 +2190,7 @@ def run_main_app():
                                             # Show empty space for non-date columns
                                             st.markdown('<div style="height: 38px;"></div>', unsafe_allow_html=True)
                                     
-                                    with col5:
+                                    with col6:
                                         st.markdown(f'<div class="schema-sample-values">{sample_vals}</div>', unsafe_allow_html=True)
                                     
                                     st.markdown('</div>', unsafe_allow_html=True)
@@ -2169,6 +2213,12 @@ def run_main_app():
                                     # Batch update all column types
                                     for col_name, selected_type in form_selections.items():
                                         st.session_state['user_selected_types'][sheet_name][col_name] = selected_type
+                                    
+                                    # Update column renames
+                                    if sheet_name not in st.session_state['user_column_renames']:
+                                        st.session_state['user_column_renames'][sheet_name] = {}
+                                    for col_name, new_name in form_renames.items():
+                                        st.session_state['user_column_renames'][sheet_name][col_name] = new_name
                                     
                                     # Update date formats
                                     if sheet_name not in st.session_state['user_selected_date_formats']:
@@ -2227,10 +2277,12 @@ def run_main_app():
                                                     keep_default_na=False,
                                                     engine="openpyxl"
                                                 )
+                                                df_sheet, override_types, override_date_formats = _apply_column_renames(df_sheet, sheet_name, override_types, override_date_formats)
                                                 process_sheet(sheet_name, df_sheet, output_dir, override_types=override_types, override_date_formats=override_date_formats)
                                             elif file_ext == '.csv':
                                                 # For CSV, process it
                                                 df = pd.read_csv(input_path, dtype=str, keep_default_na=False, engine="python", on_bad_lines="skip")
+                                                df, override_types, override_date_formats = _apply_column_renames(df, sheet_name, override_types, override_date_formats)
                                                 process_sheet(sheet_name, df, output_dir, override_types=override_types, override_date_formats=override_date_formats)
                                             else:
                                                 st.error("Unsupported file type. Please upload .xlsx, .xls, or .csv files.")
@@ -2298,6 +2350,17 @@ def run_main_app():
                             # Use existing selection if column exists, otherwise use inferred type
                             new_types[col] = current_types.get(col, info['type'])
                         st.session_state['user_selected_types'][selected_sheet] = new_types
+                    # Init or sync user_column_renames for this sheet
+                    if 'user_column_renames' not in st.session_state:
+                        st.session_state['user_column_renames'] = {}
+                    if selected_sheet not in st.session_state['user_column_renames']:
+                        st.session_state['user_column_renames'][selected_sheet] = {col: col for col in schema_info}
+                    else:
+                        current_renames = st.session_state['user_column_renames'][selected_sheet]
+                        for col in schema_info:
+                            if col not in current_renames:
+                                current_renames[col] = col
+                        st.session_state['user_column_renames'][selected_sheet] = {c: current_renames.get(c, c) for c in schema_info}
                     
                     # Create schema review table
                     review_data = []
@@ -2346,16 +2409,18 @@ def run_main_app():
                         """, unsafe_allow_html=True)
                         
                         # Header row for column labels
-                        header_col1, header_col2, header_col3, header_col4, header_col5 = st.columns([2, 1.5, 1.5, 2, 3])
+                        header_col1, header_col2, header_col3, header_col4, header_col5, header_col6 = st.columns([1.5, 2, 1.5, 1.5, 2, 3])
                         with header_col1:
                             st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Column Name</div>', unsafe_allow_html=True)
                         with header_col2:
-                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Inferred Type</div>', unsafe_allow_html=True)
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">New Field Name</div>', unsafe_allow_html=True)
                         with header_col3:
-                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Select Type</div>', unsafe_allow_html=True)
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Inferred Type</div>', unsafe_allow_html=True)
                         with header_col4:
-                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Date Format</div>', unsafe_allow_html=True)
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Select Type</div>', unsafe_allow_html=True)
                         with header_col5:
+                            st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Date Format</div>', unsafe_allow_html=True)
+                        with header_col6:
                             st.markdown('<div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Sample Values</div>', unsafe_allow_html=True)
                         
                         st.markdown('<hr style="margin: 0.5rem 0 1rem 0; border: none; border-top: 1px solid #e5e7eb;">', unsafe_allow_html=True)
@@ -2363,6 +2428,7 @@ def run_main_app():
                         # Store form selections temporarily
                         form_selections = {}
                         form_date_formats = {}
+                        form_renames = {}
                         
                         # Display table with editable dropdowns
                         for idx, row in review_df.iterrows():
@@ -2373,15 +2439,27 @@ def run_main_app():
                             # Add row styling
                             st.markdown(f'<div class="schema-review-row">', unsafe_allow_html=True)
                             
-                            col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 2, 3])
+                            col1, col2, col3, col4, col5, col6 = st.columns([1.5, 2, 1.5, 1.5, 2, 3])
                             
                             with col1:
                                 st.markdown(f'<div class="schema-column-name">{col_name}</div>', unsafe_allow_html=True)
                             
                             with col2:
-                                st.markdown(f'<span class="schema-inferred-type">{inferred_type}</span>', unsafe_allow_html=True)
+                                sheet_renames = st.session_state.get('user_column_renames', {}).get(selected_sheet, {})
+                                current_name = sheet_renames.get(col_name, col_name)
+                                new_field_name = st.text_input(
+                                    f"New name for {col_name}",
+                                    value=current_name,
+                                    key=f"form_rename_{selected_sheet}_{col_name}",
+                                    label_visibility="collapsed",
+                                    placeholder=col_name
+                                )
+                                form_renames[col_name] = (new_field_name or col_name).strip() or col_name
                             
                             with col3:
+                                st.markdown(f'<span class="schema-inferred-type">{inferred_type}</span>', unsafe_allow_html=True)
+                            
+                            with col4:
                                 sheet_types = st.session_state['user_selected_types'].get(selected_sheet, {})
                                 current_type = sheet_types.get(col_name, inferred_type)
                                 try:
@@ -2400,7 +2478,7 @@ def run_main_app():
                                 # Store selection temporarily (won't update session state until form submit)
                                 form_selections[col_name] = selected_type
                             
-                            with col4:
+                            with col5:
                                 # Show date format dropdown only for DATE or TIMESTAMP types
                                 if selected_type in ["DATE", "TIMESTAMP"]:
                                     # Get current date format for this column
@@ -2439,7 +2517,7 @@ def run_main_app():
                                     # Show empty space for non-date columns
                                     st.markdown('<div style="height: 38px;"></div>', unsafe_allow_html=True)
                             
-                            with col5:
+                            with col6:
                                 st.markdown(f'<div class="schema-sample-values">{sample_vals}</div>', unsafe_allow_html=True)
                             
                             st.markdown('</div>', unsafe_allow_html=True)
@@ -2462,6 +2540,12 @@ def run_main_app():
                             # Batch update all column types
                             for col_name, selected_type in form_selections.items():
                                 st.session_state['user_selected_types'][selected_sheet][col_name] = selected_type
+                            
+                            # Update column renames
+                            if selected_sheet not in st.session_state['user_column_renames']:
+                                st.session_state['user_column_renames'][selected_sheet] = {}
+                            for col_name, new_name in form_renames.items():
+                                st.session_state['user_column_renames'][selected_sheet][col_name] = new_name
                             
                             # Update date formats
                             if selected_sheet not in st.session_state['user_selected_date_formats']:
@@ -2516,6 +2600,7 @@ def run_main_app():
                                             override_types = user_selected_types_all.get(sheet_name, {})
                                             # Get override date formats for this sheet
                                             override_date_formats = st.session_state.get('user_selected_date_formats', {}).get(sheet_name, None)
+                                            df_sheet, override_types, override_date_formats = _apply_column_renames(df_sheet, sheet_name, override_types, override_date_formats)
                                             process_sheet(sheet_name, df_sheet, output_dir, override_types=override_types, override_date_formats=override_date_formats)
                                     elif file_ext == '.csv':
                                         # For CSV, use the sheet name (filename without extension)
@@ -2524,6 +2609,7 @@ def run_main_app():
                                         override_types = user_selected_types_all.get(sheet_name, {})
                                         # Get override date formats for this sheet
                                         override_date_formats = st.session_state.get('user_selected_date_formats', {}).get(sheet_name, None)
+                                        df, override_types, override_date_formats = _apply_column_renames(df, sheet_name, override_types, override_date_formats)
                                         process_sheet(sheet_name, df, output_dir, override_types=override_types, override_date_formats=override_date_formats)
                                     else:
                                         st.error("Unsupported file type. Please upload .xlsx, .xls, or .csv files.")
