@@ -147,7 +147,7 @@ def try_parse_date_patterns(s: pd.Series):
     return best, best_ratio
 
 def try_parse_date_direction(s: pd.Series, dayfirst: bool):
-    dt = pd.to_datetime(s, errors="coerce", dayfirst=dayfirst, infer_datetime_format=False, utc=False)
+    dt = pd.to_datetime(s, errors="coerce", dayfirst=dayfirst, utc=False)
     return dt, dt.notna().mean()
 
 def try_parse_excel_serial(s: pd.Series):
