@@ -37,7 +37,7 @@ def _apply_column_renames(df_sheet, sheet_name, override_types, override_date_fo
 # ============================================================================
 st.set_page_config(
     page_title="BigQuery Data Processor",
-    page_icon="assets/web/icons8-hub-pulsar-gradient-32.png",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
